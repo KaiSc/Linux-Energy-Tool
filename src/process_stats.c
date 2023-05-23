@@ -89,7 +89,7 @@ int read_process_stats(struct proc_info *p_info) {
     return 0;
 }
 
-
+// TODO
 int read_systemwide_stats(struct proc_info *p_info) {
     // read /proc/stat file for systemwide cpu time
     char line[256];
@@ -133,6 +133,7 @@ int read_systemwide_stats(struct proc_info *p_info) {
     p_info->rss = mem_total - mem_free;
 
     // read /proc/diskstats file for systemwide io operations
+    // TODO number seems to large
     fp = fopen("/proc/diskstats", "r");
     if (!fp) {
         perror("Couldn't open /proc/diskstats file");

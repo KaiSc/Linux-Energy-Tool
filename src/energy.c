@@ -4,6 +4,7 @@
 #include <string.h>
 #include "energy.h"
 
+// TODO hardcoded powercap energy paths
 #define RAPL_PKG_ENERGY_FILE "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/energy_uj"
 #define RAPL_CORE_ENERGY_FILE "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/intel-rapl:0:0/energy_uj"
 #define RAPL_UNCORE_ENERGY_FILE "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/intel-rapl:0:1/energy_uj"
@@ -87,14 +88,4 @@ uint64_t estimate_energy(unsigned long cputime, long rss, long io_op) {
 
     return 0;
     return energy_microj;
-}
-
-// different events for different GPUs
-uint64_t read_perf_gpu_energy() {
-
-    // TODO ///
-    // open perf events
-    // TODO ///
-
-    return 0;
 }
