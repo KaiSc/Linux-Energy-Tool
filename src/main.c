@@ -17,6 +17,7 @@
 /* arguments: -e cmd path;
               -m pid1 pid2 ...;
               -c (calibrate estimation); // TODO
+              -h help
               no arguments systemwide
 */
 

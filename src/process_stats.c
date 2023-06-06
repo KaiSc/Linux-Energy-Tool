@@ -21,12 +21,12 @@ int read_process_stats(struct proc_info *p_info) {
     char io_path[64];
     char status_path[64];
 
-    // save previous values for energy estimation
+    // Save previous values for energy estimation
     unsigned long delta_cputime = p_info->cputime; 
     long delta_rss = p_info->rss;
     long delta_io_op = p_info->io_op;
 
-    // read /proc/pid/stat file for cpu time
+    // Read /proc/pid/stat file for cpu time
     snprintf(stat_path, sizeof(stat_path), "/proc/%d/stat", p_info->pid);
     FILE *fp = fopen(stat_path, "r");
     if (!fp) {
@@ -36,13 +36,13 @@ int read_process_stats(struct proc_info *p_info) {
     unsigned long current_utime; // user cpu time
     unsigned long current_stime; // system cpu time
     char state;
-    // parenthesis skip for name field, utime14, stime15, 
+    // Parenthesis skip for name field, utime14, stime15, 
     int ret = fscanf(fp, "%*d (%*[^)]) %c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu ",
             &state, &current_utime, &current_stime);
     fclose(fp);
     p_info->cputime = current_utime + current_stime;
 
-    // read proc/pid/io file for io operations
+    // Read proc/pid/io file for I/O operations
     snprintf(io_path, sizeof(io_path), "/proc/%d/io", p_info->pid);
     fp = fopen(io_path, "r");
     if (!fp) {
@@ -59,7 +59,7 @@ int read_process_stats(struct proc_info *p_info) {
     p_info->io_op = io_operations;
     fclose(fp);
 
-    // read proc/pid/status file for resident set size
+    // Read proc/pid/status file for resident set size
     snprintf(status_path, sizeof(status_path), "/proc/%d/status", p_info->pid);
     fp = fopen(status_path, "r");
     if (!fp) {
@@ -75,30 +75,29 @@ int read_process_stats(struct proc_info *p_info) {
     }
     fclose(fp);
 
-    // if just created, skip estimation
+    // If just created, skip estimation
     if (p_info->rss == 0) {
         return 0;
     }
-    // calculate difference for time window
+    // Calculate difference for time window
     delta_cputime = p_info->cputime - delta_cputime;
     delta_rss = p_info->rss - delta_rss;
     delta_io_op = p_info->io_op - delta_io_op;
-    // estimate energy
+    // Estimate energy
     p_info->energy_interval_est = estimate_energy(delta_cputime, delta_rss, delta_io_op);
 
     return 0;
 }
 
-// TODO
 int read_systemwide_stats(struct proc_info *p_info) {
-    // read /proc/stat file for systemwide cpu time
+    // Read /proc/stat file for systemwide cpu time
     char line[256];
     FILE *fp = fopen("/proc/stat", "r");
     if (!fp) {
         perror("Couldn't open /proc/stat file");
         return -1;
     }
-    // add up all besides
+    // Add up all besides idle
     unsigned long long user, nice, system, idle, iowait, irq, softirq, steal, guest, guest_nice;
     unsigned long long total_cpu_time = 0;
 
@@ -114,7 +113,7 @@ int read_systemwide_stats(struct proc_info *p_info) {
     fclose(fp);
     p_info->cputime = total_cpu_time;
 
-    // read /proc/meminfo file for systemwide memory usage
+    // Read /proc/meminfo file for systemwide memory usage
     fp = fopen("/proc/meminfo", "r");
     if (!fp) {
         perror("Couldn't open /proc/meminfo file");
@@ -132,23 +131,22 @@ int read_systemwide_stats(struct proc_info *p_info) {
     fclose(fp);
     p_info->rss = mem_total - mem_free;
 
-    // read /proc/diskstats file for systemwide io operations
-    // TODO number seems to large
+    // Read /proc/diskstats file for systemwide I/O operations
     fp = fopen("/proc/diskstats", "r");
     if (!fp) {
         perror("Couldn't open /proc/diskstats file");
         return -1;
     }
 
-    unsigned long read_op, write_op;
+    unsigned long read_op = 0, write_op = 0;
     char device_name[32];
     while (fgets(line, sizeof(line), fp)) {
-        unsigned long read, write;
+        unsigned long read = 0, write = 0;
         sscanf(line, "%*u %*u %s %lu %*u %*u %*u %lu", 
             device_name, &read, &write);
-        // TODO skip loop device names virtual not actual io?
-        if (strcmp(device_name, "loop") == 0) {
-            continue;
+        // Skip loop device names virtual not actual io?
+        if (strncmp(device_name, "loop", 4) == 0){
+                    continue;
         }
 
         read_op += read;
@@ -169,7 +167,7 @@ int check_zombie_state(pid_t pid) {
         perror("Couldn't open /proc/pid/stat file");
         return -1;
     }
-    // parenthesis skip for name field
+    // Parenthesis skip for name field
     int ret = fscanf(fp, "%*d (%*[^)]) %c", &state);
     fclose(fp);
     if (state == 'Z' || state == 'X') { // process terminated or zombie state
