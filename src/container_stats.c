@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <inttypes.h>
 
 
 /* ///////////////////////////////////////////
@@ -20,8 +19,12 @@ struct container_info {
     char id[256];
     unsigned long cputime; // in microseconds
     long memory; // in kilobytes
-    long io_op; 
-    uint64_t energy_interval_est; // in microjoules
+    long io_op;
+    // TODO process ids
+    unsigned long cputime_interval;
+    long memory_interval;
+    long io_op_interval;
+    double energy_interval_est; // in microjoules
 };
 
 
@@ -125,6 +128,10 @@ int get_containers() {
     
     return 0;
 }
+
+// TODO update containers
+// TODO check for newly started containers
+
 
  /* testing
 int main(int argc, char const *argv[])

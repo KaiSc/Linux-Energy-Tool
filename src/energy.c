@@ -78,14 +78,51 @@ int init_rapl() {
 
 }
 
-// use statistics to estimate consumed energy
-uint64_t estimate_energy(unsigned long cputime, long rss, long io_op) {
-    uint64_t energy_microj;
-
-    // TODO ///
-    // estimate energy
-    // TODO ///
-
-    return 0;
-    return energy_microj;
+// Use statistics to estimate consumed energy
+// TODO
+// - better estimation, differntiate pkg/ram if supported
+// - deduct idle power consumption 
+double estimate_energy_cputime(unsigned long cputime, unsigned long cputime_proc,
+        uint64_t energy_interval) 
+{
+    double idle_consumption = 0;
+    double energy_estimation = 0;
+    // compute fraction
+    if (cputime_proc==0) {return 0;}
+    double cputime_frac = (double) cputime_proc / cputime;
+    printf("cputime %lu --- cputime_proc %lu --- frac %.6f \n", cputime, cputime_proc, cputime_frac);
+    energy_estimation = cputime_frac * ((double) energy_interval - idle_consumption);
+    return energy_estimation;
 }
+
+double estimate_energy_cycles(unsigned long cpu_cycles, long long cpu_cycles_proc,
+        uint64_t energy_interval)
+{
+    double idle_consumption = 0;
+    double energy_estimation = 0;
+    // compute fraction
+    if (cpu_cycles_proc==0) {return 0;}
+    double cpu_cycles_frac = (double) cpu_cycles_proc / cpu_cycles;
+    printf("cycles %lu --- cycles_proc %lld --- frac %.6f \n", cpu_cycles, cpu_cycles_proc, cpu_cycles_frac);
+    energy_estimation = cpu_cycles_frac * ((double) energy_interval - idle_consumption);
+    return energy_estimation;
+}
+
+/*
+double estimate_energy(unsigned long cputime, long rss, long io_op, long long cpu_cycles, 
+        unsigned long cputime_proc, long rss_proc, long io_op_proc, long long cpu_cycles_proc,
+        uint64_t energy_interval) 
+{
+    double energy_estimation = 0;
+    // compute fractions
+    double cputime_frac = (double) cputime_proc / cputime;
+    double rss_frac = (double) rss_proc / rss;
+    double io_op_frac = (double) io_op_proc / io_op;
+    double cpu_cycles_frac = (double) cpu_cycles_proc / cpu_cycles;
+
+    energy_estimation = cputime_frac * energy_interval * 0.9 + rss_frac * energy_interval *0.05
+                        + io_op_frac * energy_interval *0.05;
+
+    return energy_estimation;
+}
+// */

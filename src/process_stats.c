@@ -7,12 +7,28 @@
 
 // CPU-Time, I/O, Memory used
 
+// TODO make system_stats object global and remove interval from proc/container
 struct proc_info { 
     pid_t pid;
     unsigned long cputime; // in clock ticks, divide by sysconf(_SC_CLK_TCK) for seconds
     long rss; // in kilobytes
     long io_op; 
-    uint64_t energy_interval_est; // in microjoules
+    unsigned long cputime_interval;
+    long rss_interval;
+    long io_op_interval;
+    long long cycles_interval;
+    int fd;
+    double energy_interval_est; // in microjoules
+};
+
+struct system_stats {
+    unsigned long cputime; // in clock ticks, divide by sysconf(_SC_CLK_TCK) for seconds
+    long rss; // in kilobytes
+    long io_op;
+    unsigned long cputime_interval;
+    long rss_interval;
+    long io_op_interval;
+    long long cycles;
 };
 
 
@@ -80,16 +96,19 @@ int read_process_stats(struct proc_info *p_info) {
         return 0;
     }
     // Calculate difference for time window
-    delta_cputime = p_info->cputime - delta_cputime;
-    delta_rss = p_info->rss - delta_rss;
-    delta_io_op = p_info->io_op - delta_io_op;
-    // Estimate energy
-    p_info->energy_interval_est = estimate_energy(delta_cputime, delta_rss, delta_io_op);
+    p_info->cputime_interval = p_info->cputime - delta_cputime;
+    p_info->rss_interval = p_info->rss - delta_rss;
+    p_info->io_op_interval = p_info->io_op - delta_io_op;
 
     return 0;
 }
 
-int read_systemwide_stats(struct proc_info *p_info) {
+int read_systemwide_stats(struct system_stats *sys_stats) {
+    // Save previous values for energy estimation
+    unsigned long delta_cputime = sys_stats->cputime; 
+    long delta_rss = sys_stats->rss;
+    long delta_io_op = sys_stats->io_op;
+
     // Read /proc/stat file for systemwide cpu time
     char line[256];
     FILE *fp = fopen("/proc/stat", "r");
@@ -111,7 +130,7 @@ int read_systemwide_stats(struct proc_info *p_info) {
         break;
     }
     fclose(fp);
-    p_info->cputime = total_cpu_time;
+    sys_stats->cputime = total_cpu_time;
 
     // Read /proc/meminfo file for systemwide memory usage
     fp = fopen("/proc/meminfo", "r");
@@ -129,7 +148,7 @@ int read_systemwide_stats(struct proc_info *p_info) {
         }
     }
     fclose(fp);
-    p_info->rss = mem_total - mem_free;
+    sys_stats->rss = mem_total - mem_free;
 
     // Read /proc/diskstats file for systemwide I/O operations
     fp = fopen("/proc/diskstats", "r");
@@ -153,7 +172,13 @@ int read_systemwide_stats(struct proc_info *p_info) {
         write_op += write;
     }
     fclose(fp);
-    p_info->io_op = read_op + write_op;
+    sys_stats->io_op = read_op + write_op;
+
+    // Compute interval statistics
+    if (delta_cputime==0) {return 0;}
+    sys_stats->cputime_interval = sys_stats->cputime - delta_cputime;
+    sys_stats->rss_interval = sys_stats->rss - delta_rss;
+    sys_stats->io_op_interval = sys_stats->io_op - delta_io_op;
 
     return 0;
 }

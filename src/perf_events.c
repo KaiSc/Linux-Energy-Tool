@@ -6,6 +6,7 @@
 #include <linux/perf_event.h>
 #include <sys/ioctl.h>
 #include <asm/unistd.h>
+#include <fcntl.h>
 
 static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid, int cpu, int group_fd, unsigned long flags)
 {
@@ -39,6 +40,63 @@ int setUpProcCycles(pid_t pid ) {
     return fd;
 }
 
+int setUpProcCycles_cpu(int cpu) {
+    struct perf_event_attr pe;
+    int fd;
+
+    // Create event attribute
+    memset(&pe, 0, sizeof(struct perf_event_attr));
+    pe.type = PERF_TYPE_HARDWARE;
+    pe.config = PERF_COUNT_HW_CPU_CYCLES;  // Measure CPU cycles
+    pe.disabled = 1;  // Start the counter in a disabled state
+    pe.exclude_kernel = 0;  // Include kernel space measurement
+    pe.exclude_hv = 1;  // Exclude hypervisor from measurement
+    pe.size = sizeof(struct perf_event_attr);
+
+    // Open event counter
+    fd = perf_event_open(&pe, -1, cpu, -1, 0);
+    if (fd == -1) {
+        printf("Error opening perf event\n");
+        return 1;
+    }
+
+    // Clear and enable event counter
+    ioctl(fd, PERF_EVENT_IOC_RESET, 0);
+    ioctl(fd, PERF_EVENT_IOC_ENABLE, 0);
+
+    return fd;
+}
+
+// TODO can multiple cpus be opened as group event?
+int setUpProcCycles_cgroup(int cgroup_fd, int cpu) {
+    struct perf_event_attr pe;
+    int fd;
+
+    // Create event attribute
+    memset(&pe, 0, sizeof(struct perf_event_attr));
+    pe.type = PERF_TYPE_HARDWARE;
+    pe.config = PERF_COUNT_HW_CPU_CYCLES;  // Measure CPU cycles
+    pe.disabled = 1;  // Start the counter in a disabled state
+    pe.exclude_kernel = 0;  // Include kernel space measurement
+    pe.exclude_hv = 1;  // Exclude hypervisor from measurement
+    pe.size = sizeof(struct perf_event_attr);
+
+    // Open event counter
+    // cgroup path fd as pid, flags combined by ORing
+    int flag = PERF_FLAG_PID_CGROUP;
+    fd = perf_event_open(&pe, cgroup_fd, cpu, -1, flag);
+    if (fd == -1) {
+        printf("Error opening perf event\n");
+        return 1;
+    }
+
+    // Clear and enable event counter
+    ioctl(fd, PERF_EVENT_IOC_RESET, 0);
+    ioctl(fd, PERF_EVENT_IOC_ENABLE, 0);
+
+    return fd;
+}
+
 long long readInterval(int fd) {
     long long counter;
     // Read counting event counter
@@ -46,6 +104,7 @@ long long readInterval(int fd) {
     // Reset counter, or implement overflow 
     ioctl(fd, PERF_EVENT_IOC_RESET, 0);
     //printf("CPU cycles: %llu\n", counter);
+    return counter;
 }
 
 int closeEvent(int fd) {
@@ -55,6 +114,38 @@ int closeEvent(int fd) {
     // Close the perf event
     close(fd);
 }
+
+
+// TODO cgroup perf event open
+
+
+/* 
+int main(int argc, char **argv)
+{
+    // monitor given cgroup
+    int fd;
+    char* cgroup_path = "/sys/fs/cgroup/system.slice/docker-27780ac24a350972efff2a1e7c1123f84cfb90c5f82c7d1d9880c59efb30daac.scope/";
+    int max_cpus = sysconf(_SC_NPROCESSORS_CONF);    
+    int fds_cpu[max_cpus];
+    long long total_interval_cycles_cgroup = 0;
+    fd = open(cgroup_path, O_RDONLY);
+    for (int i = 0; i < max_cpus; i++) {
+        fds_cpu[i] = setUpProcCycles_cgroup(fd, i);
+    }
+
+    while(1) {
+        sleep(1);
+        for (int i = 0; i < max_cpus; i++) {
+            int fd = fds_cpu[i];
+            long long cycles = readInterval(fd);
+            total_interval_cycles_cgroup += cycles;
+        }
+        printf("Cgroup CPU-cycles: %lld\n", total_interval_cycles_cgroup);
+        total_interval_cycles_cgroup = 0;
+    }
+    closeEvent(fd);
+}
+// */
 
 /* testing
 int main(int argc, char **argv)
