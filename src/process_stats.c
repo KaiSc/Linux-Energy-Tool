@@ -8,7 +8,7 @@
 // CPU-Time, I/O, Memory used
 
 // TODO make system_stats object global and remove interval from proc/container
-struct proc_info { 
+struct proc_stats { 
     pid_t pid;
     unsigned long cputime; // in clock ticks, divide by sysconf(_SC_CLK_TCK) for seconds
     long rss; // in kilobytes
@@ -18,7 +18,7 @@ struct proc_info {
     long io_op_interval;
     long long cycles_interval;
     int fd;
-    double energy_interval_est; // in microjoules
+    long long energy_interval_est; // in microjoules
 };
 
 struct system_stats {
@@ -32,7 +32,7 @@ struct system_stats {
 };
 
 
-int read_process_stats(struct proc_info *p_info) {
+int read_process_stats(struct proc_stats *p_info) {
     char stat_path[64];
     char io_path[64];
     char status_path[64];

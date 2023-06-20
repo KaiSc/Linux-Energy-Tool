@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <inttypes.h>
 #include <unistd.h>
+#include <float.h>
+#include <sys/time.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <sys/types.h>
@@ -10,58 +12,47 @@
 #include "process_stats.h"
 #include "perf_events.h"
 #include "container_stats.h"
+#include "logging.h"
 // #include "read_nvidia_gpu.h"
 
-#define CLK_TCK sysconf(_SC_CLK_TCK)
 #define MAX_CPUS sysconf(_SC_NPROCESSORS_CONF)
-#define interval 1 // measurements taken in intervals (in seconds) for systemwide and -m
+#define CLK_TCK sysconf(_SC_CLK_TCK)
+#define interval 1 // measurements taken in intervals (in seconds) for system-wide, -m and -c
 
-
-static void print_pinfo(struct proc_info *p_info) {
-    printf("----------------------------------\n");
-    printf("Process: %d, statistics from last interval:\n", p_info->pid);
-    printf("CPU-Time in seconds: %.2f \n", (double) p_info->cputime_interval / CLK_TCK);
-    printf("Resident set size change in kB: %ld \n", p_info->rss_interval);
-    printf("Number of IO operations: %ld \n", p_info->io_op_interval);
-    printf("Number of CPU cycles: %lld \n", p_info->cycles_interval);
-    printf("Estimated energy in microjoules: %.0f \n", p_info->energy_interval_est);
-    printf("----------------------------------\n");
-}
-
-static void print_system_stats(struct system_stats *system_info) {
-    printf("----------------------------------\n");
-    printf("System statistics from last interval:\n");
-    printf("CPU-Time in seconds: %.2f \n", (double) system_info->cputime_interval / CLK_TCK);
-    printf("Resident set size in kB: %ld \n", system_info->rss_interval);
-    printf("Number of I/O operations: %ld \n", system_info->io_op_interval);
-    printf("Number of CPU cycles %lld\n", system_info->cycles);
-    printf("----------------------------------\n");
-}
-
-static void print_help() {
-    printf("Possible arguments: \n"
-        " -e (execute a given command, e.g. -e java myprogram) \n"
-        " -m (monitor given processes given by their id, e.g. -m 1 2 3) \n"
-        " -c (monitor running docker containers) \n"
-        " -i (calibrate estimation weights, saves in config file for future use) \n"
-        " Running with no arguments will monitor all active processes.\n");
-}
+static void print_pinfo(struct proc_stats *p_info);
+static void print_system_stats(struct system_stats *system_info);
+static void print_container_info(struct container_stats *container);
+static void print_help();
 
 // TODO read energy with perf events?
 int main(int argc, char *argv[]) {
     pid_t pid;
     int status, ret, fd;
     struct rusage usage;
-    uint64_t energy_before_pkg = 0;
-    uint64_t energy_before_dram = 0;
-    uint64_t energy_after_pkg = 0;
-    uint64_t energy_after_dram = 0;
-    uint64_t total_energy_used = 0;
+    long long energy_before_pkg = 0;
+    long long energy_before_dram = 0;
+    long long energy_after_pkg = 0;
+    long long energy_after_dram = 0;
+    long long total_energy_used = 0;
     struct system_stats system_stats;
     int fds_cpu[MAX_CPUS];
     long long cpu_cycles = 0;
+    int logging_enabled = 0; // Flag to indicate if logging is enabled
+    char logging_buffer[4096] = "";
+    FILE *logfile;
     
     init_rapl();
+
+    // Check if the first argument is '-l' and set logging flag
+    if (argc > 1 && strcmp(argv[1], "-l") == 0) {
+        logging_enabled = 1;
+        // Remove '-l' from the argument list
+        for (int i = 1; i < argc - 1; i++) {
+            argv[i] = argv[i + 1];
+        }
+        argc--;
+        logfile = initLogFile();
+    }
 
     // No arguments provided, system-wide monitoring
     if (argc < 2) 
@@ -75,6 +66,7 @@ int main(int argc, char *argv[]) {
             cpu_cycles = 0;
             energy_before_pkg = read_energy(0);
             energy_before_dram = read_energy(3);
+            ret = read_systemwide_stats(&system_stats);
 
             sleep(interval);
 
@@ -88,7 +80,12 @@ int main(int argc, char *argv[]) {
             total_energy_used = check_overflow(energy_before_dram, energy_after_dram) 
                                 + check_overflow(energy_before_pkg, energy_after_pkg);
             print_system_stats(&system_stats);
-            printf("Total microjoules used: %"PRIu64 "\n", total_energy_used);
+            printf("Interval(%d): total energy (microjoules): %lld, CPU-cycles: %lld\n", 
+                interval, total_energy_used, system_stats.cycles);
+            if(logging_enabled == 1) {
+                system_stats_to_buffer(&system_stats, total_energy_used, logging_buffer);
+                writeToFile(logfile, logging_buffer);
+            }
         }
         
         return 0;
@@ -99,11 +96,15 @@ int main(int argc, char *argv[]) {
     {
         // Fork to start child process
         argv[argc] = NULL; // Add NULL terminator to argument for execvp
+        struct timeval start, end;
+        double elapsedTime;
         // Set up system-wide cycles
         for (int i = 0; i < MAX_CPUS; i++) {
             fds_cpu[i] = setUpProcCycles_cpu(i);
         }
+        double time = 0;
         read_systemwide_stats(&system_stats);
+        gettimeofday(&start, NULL);
         energy_before_pkg = read_energy(0);
         energy_before_dram = read_energy(3);
 
@@ -114,11 +115,10 @@ int main(int argc, char *argv[]) {
         } else if (pid > 0) {
             long long proc_cycles = 0;
             int fd = setUpProcCycles(pid);
-            // parent process waits for child termination 
-            // TODO instead use some signal that keeps child process in zombie state, ptrace?
 
+            // parent process waits for child termination 
             /*  // higher energy overhead but same statistics as running processes
-            struct proc_info p;
+            struct proc_stats p;
             p.pid = pid;
             ret = 0;
             while (ret == 0)
@@ -132,7 +132,7 @@ int main(int argc, char *argv[]) {
             total_energy_used = check_overflow(energy_before_pkg, energy_after_pkg)
                                     + check_overflow(energy_before_dram, energy_after_dram);
             print_pinfo(&p);
-            printf("Systemwide measured energy in microjoules: %"PRIu64 "\n", total_energy_used);
+            printf("Systemwide measured energy in microjoules: %lld" "\n", total_energy_used);
             /* */
 
             /* // more accurate energy but different statistics */
@@ -144,6 +144,7 @@ int main(int argc, char *argv[]) {
                 total_energy_used = check_overflow(energy_before_pkg, energy_after_pkg)
                                     + check_overflow(energy_before_dram, energy_after_dram);
                 proc_cycles += readInterval(fd);
+                gettimeofday(&end, NULL);
                 closeEvent(fd);
                 read_systemwide_stats(&system_stats);
                 for (int i = 0; i < MAX_CPUS; i++) {   
@@ -151,19 +152,27 @@ int main(int argc, char *argv[]) {
                     closeEvent(fds_cpu[i]);
                 }
                 system_stats.cycles = cpu_cycles;
-                double estimated_energy = estimate_energy_cycles(cpu_cycles, proc_cycles, total_energy_used);
-
-                printf("User CPU time: %ld seconds, %ld microseconds\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
-                printf("System CPU time: %ld seconds, %ld microseconds\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
+                elapsedTime = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) * 1e-6;
+                long long estimated_energy = estimate_energy_cycles(cpu_cycles, proc_cycles,
+                                                                    total_energy_used, elapsedTime);
+                double total_proc_cpu_time = usage.ru_utime.tv_sec + usage.ru_stime.tv_sec + 
+                        (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) * 1e-6;
+                long total_io = usage.ru_inblock + usage.ru_oublock;
+                //printf("Execution time: %.6f\n", elapsedTime);
+                printf("Process CPU Time: %.6f\n", total_proc_cpu_time);
                 printf("Maximum used rss: %ld \n", usage.ru_maxrss);
-                printf("Input/Output operations: %ld \n", usage.ru_inblock + usage.ru_oublock);
+                printf("Input/Output operations: %ld \n", total_io);
                 printf("Process CPU cycles: %lld \n", proc_cycles);
                 printf("System-wide CPU cycles: %lld \n", cpu_cycles);
-                printf("Estimated energy: %.0f \n", estimated_energy);
-                printf("System-wide measured energy in microjoules: %"PRIu64 "\n", total_energy_used);
+                printf("Estimated energy: %lld \n", estimated_energy);
+                printf("System-wide measured energy in microjoules: %lld\n", total_energy_used);
+                if (logging_enabled == 1) {
+                    system_stats_to_buffer(&system_stats, total_energy_used, logging_buffer);
+                    e_stats_to_buffer(total_proc_cpu_time, usage.ru_maxrss, total_io,
+                                proc_cycles, estimated_energy, logging_buffer);
+                    writeToFile(logfile, logging_buffer);
+                }
             }
-            /* */
-
         } else {
             // fork failed
             printf("Fork failed\n");
@@ -176,9 +185,9 @@ int main(int argc, char *argv[]) {
     // -m (monitor given processes given by their id, e.g. -m 1 2 3)
     else if (strcmp(argv[1], "-m") == 0)
     {
-        int num_processes = argc - 2; // number of processes to monitor
-        struct proc_info *processes = malloc(num_processes * sizeof(struct proc_info)); // allocate memory
-        // Create proc_info for each process id
+        int num_processes = argc - 2;
+        struct proc_stats *processes = malloc(num_processes * sizeof(struct proc_stats)); // allocate memory
+        // Create proc_stats for each process id
         for (int i = 0; i < num_processes; i++)
         { 
             pid = (pid_t) atoi(argv[i+2]);
@@ -227,7 +236,7 @@ int main(int argc, char *argv[]) {
                 // TODO process ended in interval, perf event recorded until end, final output?
                 if (ret == -1) 
                 {
-                    // process has terminated, remove it from the array
+                    // Process has terminated, remove it from the array
                     closeEvent(processes[i].fd);
                     if (num_processes==1) { // all processes terminated
                         return 0;
@@ -239,16 +248,22 @@ int main(int argc, char *argv[]) {
                     i--; // correct current index
                 }
 
-                // estimage energy
+                // Estimate energy
                 processes[i].energy_interval_est = estimate_energy_cycles(system_stats.cycles,
-                                                processes[i].cycles_interval, total_energy_used);
-                //processes[i].energy_interval_est = estimate_energy_cputime(system_stats.cputime_interval,
-                //                                processes[i].cputime_interval, total_energy_used);
+                                                processes[i].cycles_interval, total_energy_used, interval);
                 print_pinfo(&processes[i]);
             }
-
-            printf("Total used energy in time interval(%d) in microjoules: %"PRIu64 "\n", 
-                interval, total_energy_used);
+            printf("Interval(%d): total energy (microjoules): %lld, CPU-cycles: %lld\n", 
+                interval, total_energy_used, system_stats.cycles);
+            if (logging_enabled == 1) {
+                // TODO LOG
+                system_stats_to_buffer(&system_stats, total_energy_used, logging_buffer);
+                for (int i = 0; i < num_processes; i++)
+                {
+                    process_stats_to_buffer(&processes[i], logging_buffer);
+                }
+                writeToFile(logfile, logging_buffer);
+            }
         }
         free(processes);
     }
@@ -256,41 +271,145 @@ int main(int argc, char *argv[]) {
     // -c (monitor running docker containers) 
     else if (strcmp(argv[1], "-c") == 0)
     {
-        // TODO ////
-        get_containers();
+        init_docker_container();
         // Set up system-wide cycles
         for (int i = 0; i < MAX_CPUS; i++) {
             fds_cpu[i] = setUpProcCycles_cpu(i);
-            // TODO setUpProcCycles_cgroup(cgroup_fd, i)
         }
+        get_docker_containers();
         while(1) {
             cpu_cycles = 0;
             energy_before_pkg = read_energy(0);
             energy_before_dram = read_energy(3);
-            // TODO update container list
             sleep(interval);
-
             energy_after_pkg = read_energy(0);
             energy_after_dram = read_energy(3);
             ret = read_systemwide_stats(&system_stats);
             total_energy_used = check_overflow(energy_before_dram, energy_after_dram) 
                                 + check_overflow(energy_before_pkg, energy_after_pkg);
+            // Update containers
+            // TODO estimate energy in updating
+            update_docker_containers();
             for (int i = 0; i < MAX_CPUS; i++) {   
                 cpu_cycles += readInterval(fds_cpu[i]);
-                // TODO cgroup cycles
             }
             system_stats.cycles = cpu_cycles;
+            // Estimate energy
+            for (int i = 0; i < num_containers; i++)
+            {
+                containers[i].energy_interval_est = estimate_energy_cycles(cpu_cycles,
+                    containers[i].cycles_interval, total_energy_used, interval);
+                print_container_info(&containers[i]);
+            }
+            printf("Interval(%d): total energy (microjoules): %lld, CPU-cycles: %lld\n", 
+                interval, total_energy_used, system_stats.cycles);
+            if (logging_enabled == 1) {
+                // Logging
+                system_stats_to_buffer(&system_stats, total_energy_used, logging_buffer);
+                for (int i = 0; i < num_containers; i++)
+                {
+                    container_stats_to_buffer(&containers[i], logging_buffer);
+                }
+                writeToFile(logfile, logging_buffer);
+            }
         }
-
-        // TODO ////
     }
 
-    // -i help information
+    // -i (calibration, execute on idle system for idle energy per second)
     else if (strcmp(argv[1], "-i") == 0) 
     {
-        // TODO calibration
-        // measure and save idle power consumption
-        // measure all cpus maxed out?
+        // TODO 
+        // - measure actual time passed instead of sleep for more accuracy?
+        // - minimum measured for low outliers in energy estimations?
+
+        /* perf energy event calibration 
+
+        ret = initEnergy();
+        int measurements = 60; // in seconds
+        double measured_values[measurements]; 
+        int pkg_fd = 0, ram_fd = 0;
+        double pkg_energy = 0, ram_energy = 0, total_energy = 0;
+        if (ret==0){
+            // both pkg and ram
+            pkg_fd = openPkgEvent(); 
+            ram_fd = openRamEvent();
+        } else if (ret==1) {
+            pkg_fd = openPkgEvent();
+        } else {
+            printf("Energy perf events not accessible. Sudo, perf paranoia or not supported.");
+            return 0;
+        }
+        if (ret==0) {
+            // clean start, reset counters
+            readEnergyInterval(pkg_fd, 0);
+            readEnergyInterval(ram_fd, 1);
+            for (int i = 0; i < measurements; i++) {
+                sleep(1);
+                measured_values[i] = readEnergyInterval(pkg_fd, 0) + readEnergyInterval(ram_fd, 1);
+            }
+        } else {
+            // clean start, reset counters
+            readEnergyInterval(pkg_fd, 0);
+            readEnergyInterval(ram_fd, 1);
+            for (int i = 0; i < measurements; i++) {
+                sleep(1);
+                measured_values[i] = readEnergyInterval(pkg_fd, 0);
+            }
+        }
+        double min_value = DBL_MAX;
+        double cur_value = 0;
+        for (int i = 0; i < measurements; i++)
+        {
+            cur_value = measured_values[i];
+            if (min_value > cur_value) {
+                min_value = cur_value;
+            }
+            total_energy += cur_value;
+        }
+        total_energy = total_energy / measurements;
+
+        // Save to file
+        FILE *fp = fopen("config_idle.txt", "w");
+        fprintf(fp, "%.6f\n%.6f\n", total_energy, min_value); // Write total_energy to the file
+        printf("New idle energy consumption per second: %.6f \n", total_energy);
+        fclose(fp);
+
+        // */
+
+        int measurements = 181;
+        long long measured_values[measurements];
+
+        for (int i = 0; i < measurements; i++)
+        {
+            measured_values[i] = read_energy(0) + read_energy(3);
+            sleep(1);
+        }
+
+        long long total_energy = 0;
+        long long min_value = __LONG_LONG_MAX__;
+        long long cur_interval = 0;
+
+        for (int i = 0; i < measurements-1; i++)
+        {
+            cur_interval = check_overflow(measured_values[i], measured_values[i+1]);
+            if (min_value > cur_interval) {
+                min_value = cur_interval;
+            }
+            total_energy += cur_interval;
+        }
+
+        total_energy = total_energy / (measurements-1);
+        // TODO
+        // - how much of idle power can be used on processes 
+        // - coefficient to make up for measurements?
+
+        // Save to file
+        FILE *fp = fopen("config_idle.txt", "w");
+        fprintf(fp, "%lld\n%lld\n", total_energy, min_value); // Write total_energy to the file
+        printf("New idle energy consumption (microjoules per second): %lld\n", total_energy);
+        fclose(fp);
+        
+        return 0;
     }
 
     // -h help information
@@ -303,4 +422,45 @@ int main(int argc, char *argv[]) {
     {
         printf("Could not match given arguments. Run again with -h for help \n");
     }
+}
+
+
+static void print_pinfo(struct proc_stats *p_info) {
+    printf("----------------------------------\n");
+    printf("Process: %d, statistics from last interval:\n", p_info->pid);
+    printf("CPU-Time in seconds: %.2f \n", (double) p_info->cputime_interval / CLK_TCK);
+    printf("Resident set size change in kB: %ld \n", p_info->rss_interval);
+    printf("Number of IO operations: %ld \n", p_info->io_op_interval);
+    printf("Number of CPU cycles: %lld \n", p_info->cycles_interval);
+    printf("Estimated energy in microjoules: %lld \n", p_info->energy_interval_est);
+}
+
+static void print_system_stats(struct system_stats *system_info) {
+    printf("----------------------------------\n");
+    printf("System statistics from last interval:\n");
+    printf("CPU-Time in seconds: %.2f \n", (double) system_info->cputime_interval / CLK_TCK);
+    printf("Resident set size in kB: %ld \n", system_info->rss_interval);
+    printf("Number of I/O operations: %ld \n", system_info->io_op_interval);
+    printf("Number of CPU cycles: %lld\n", system_info->cycles);
+}
+
+static void print_container_info(struct container_stats *container) {
+    printf("----------------------------------\n");
+    printf("Container: %s\n", container->id);
+    printf("CPU-Time in microseconds: %lu\n", container->cputime_interval);
+    printf("Resident set size change in Bytes: %lld\n", container->memory_interval);
+    printf("IO-operations: %ld\n", container->io_op_interval);
+    printf("Number of CPU cycles: %llu\n", container->cycles_interval);
+    printf("Estimated energy in microjoules: %lld\n", container->energy_interval_est);
+
+}
+
+static void print_help() {
+    printf("Possible arguments: \n"
+        " -l (logging in combination with others, has to be first) \n"
+        " -e (execute a given command, e.g. -e java myprogram) \n"
+        " -m (monitor given processes given by their id, e.g. -m 1 2 3) \n"
+        " -c (monitor running docker containers) \n"
+        " -i (calibration, execute on idle system for idle power) \n"
+        " Running with no arguments or only -l will monitor all active processes.\n");
 }

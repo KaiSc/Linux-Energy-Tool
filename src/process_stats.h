@@ -3,7 +3,7 @@
 
 #include <inttypes.h>
 
-struct proc_info 
+struct proc_stats 
 { 
     pid_t pid;
     unsigned long cputime; // in clock ticks, divide by sysconf(_SC_CLK_TCK) for seconds
@@ -14,7 +14,7 @@ struct proc_info
     long io_op_interval;
     long long cycles_interval;
     int fd;
-    double energy_interval_est; // in microjoules
+    long long energy_interval_est; // in microjoules
 };
 
 
@@ -29,7 +29,7 @@ struct system_stats
     long long cycles;
 };
 
-int read_process_stats(struct proc_info *p_info);
+int read_process_stats(struct proc_stats *p_info);
 
 int read_systemwide_stats(struct system_stats *sys_stats);
 

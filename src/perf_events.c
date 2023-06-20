@@ -29,7 +29,7 @@ int setUpProcCycles(pid_t pid ) {
     // Open event counter
     fd = perf_event_open(&pe, pid, -1, -1, 0);
     if (fd == -1) {
-        printf("Error opening perf event\n");
+        printf("Error opening perf event proc\n");
         return 1;
     }
 
@@ -56,7 +56,7 @@ int setUpProcCycles_cpu(int cpu) {
     // Open event counter
     fd = perf_event_open(&pe, -1, cpu, -1, 0);
     if (fd == -1) {
-        printf("Error opening perf event\n");
+        printf("Error opening perf event cpu\n");
         return 1;
     }
 
@@ -86,7 +86,7 @@ int setUpProcCycles_cgroup(int cgroup_fd, int cpu) {
     int flag = PERF_FLAG_PID_CGROUP;
     fd = perf_event_open(&pe, cgroup_fd, cpu, -1, flag);
     if (fd == -1) {
-        printf("Error opening perf event\n");
+        printf("Error opening perf event cgroup\n");
         return 1;
     }
 
@@ -115,52 +115,6 @@ int closeEvent(int fd) {
     close(fd);
 }
 
-
-// TODO cgroup perf event open
-
-
-/* 
-int main(int argc, char **argv)
-{
-    // monitor given cgroup
-    int fd;
-    char* cgroup_path = "/sys/fs/cgroup/system.slice/docker-27780ac24a350972efff2a1e7c1123f84cfb90c5f82c7d1d9880c59efb30daac.scope/";
-    int max_cpus = sysconf(_SC_NPROCESSORS_CONF);    
-    int fds_cpu[max_cpus];
-    long long total_interval_cycles_cgroup = 0;
-    fd = open(cgroup_path, O_RDONLY);
-    for (int i = 0; i < max_cpus; i++) {
-        fds_cpu[i] = setUpProcCycles_cgroup(fd, i);
-    }
-
-    while(1) {
-        sleep(1);
-        for (int i = 0; i < max_cpus; i++) {
-            int fd = fds_cpu[i];
-            long long cycles = readInterval(fd);
-            total_interval_cycles_cgroup += cycles;
-        }
-        printf("Cgroup CPU-cycles: %lld\n", total_interval_cycles_cgroup);
-        total_interval_cycles_cgroup = 0;
-    }
-    closeEvent(fd);
-}
-// */
-
-/* testing
-int main(int argc, char **argv)
-{
-    // monitor given process on any cpu
-    int fd;
-    pid_t pid = 0; // process id
-    fd = setUpProcCycles(pid);
-    while(1) {
-        sleep(1);
-        readInterval(fd);
-    }
-    closeEvent(fd);
-}
-// */
 
 static int energy_event_type;
 static double pkg_scale;
@@ -265,6 +219,48 @@ double readEnergyInterval(int fd, int type) {
     }
 }
 
+/* 
+int main(int argc, char **argv)
+{
+    // monitor given cgroup
+    int fd;
+    char* cgroup_path = "/sys/fs/cgroup/system.slice/docker-27780ac24a350972efff2a1e7c1123f84cfb90c5f82c7d1d9880c59efb30daac.scope/";
+    int max_cpus = sysconf(_SC_NPROCESSORS_CONF);    
+    int fds_cpu[max_cpus];
+    long long total_interval_cycles_cgroup = 0;
+    fd = open(cgroup_path, O_RDONLY);
+    for (int i = 0; i < max_cpus; i++) {
+        fds_cpu[i] = setUpProcCycles_cgroup(fd, i);
+    }
+
+    while(1) {
+        sleep(1);
+        for (int i = 0; i < max_cpus; i++) {
+            int fd = fds_cpu[i];
+            long long cycles = readInterval(fd);
+            total_interval_cycles_cgroup += cycles;
+        }
+        printf("Cgroup CPU-cycles: %lld\n", total_interval_cycles_cgroup);
+        total_interval_cycles_cgroup = 0;
+    }
+    closeEvent(fd);
+}
+// */
+
+/* testing
+int main(int argc, char **argv)
+{
+    // monitor given process on any cpu
+    int fd;
+    pid_t pid = 0; // process id
+    fd = setUpProcCycles(pid);
+    while(1) {
+        sleep(1);
+        readInterval(fd);
+    }
+    closeEvent(fd);
+}
+// */
 
 /* testing 
 int main(int argc, char **argv)
