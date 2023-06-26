@@ -13,7 +13,7 @@
 #include "perf_events.h"
 #include "container_stats.h"
 #include "logging.h"
-// #include "read_nvidia_gpu.h"
+#include "read_nvidia_gpu.h"
 
 #define MAX_CPUS sysconf(_SC_NPROCESSORS_CONF)
 #define CLK_TCK sysconf(_SC_CLK_TCK)
@@ -42,6 +42,7 @@ int main(int argc, char *argv[]) {
     FILE *logfile;
     
     init_rapl();
+    init_gpu();
 
     // Check if the first argument is '-l' and set logging flag
     if (argc > 1 && strcmp(argv[1], "-l") == 0) {
@@ -77,6 +78,7 @@ int main(int argc, char *argv[]) {
             energy_after_pkg = read_energy(0);
             energy_after_dram = read_energy(3);
             ret = read_systemwide_stats(&system_stats);
+            get_gpu_stats();
             total_energy_used = check_overflow(energy_before_dram, energy_after_dram) 
                                 + check_overflow(energy_before_pkg, energy_after_pkg);
             print_system_stats(&system_stats);
@@ -84,6 +86,7 @@ int main(int argc, char *argv[]) {
                 interval, total_energy_used, system_stats.cycles);
             if(logging_enabled == 1) {
                 system_stats_to_buffer(&system_stats, total_energy_used, logging_buffer);
+                gpu_stats_to_buffer(logging_buffer);
                 writeToFile(logfile, logging_buffer);
             }
         }
@@ -220,6 +223,7 @@ int main(int argc, char *argv[]) {
             energy_after_pkg = read_energy(0);
             energy_after_dram = read_energy(3);
             read_systemwide_stats(&system_stats);
+            get_gpu_stats();
             total_energy_used = check_overflow(energy_before_pkg, energy_after_pkg)
                                 + check_overflow(energy_before_dram, energy_after_dram);
             
@@ -249,7 +253,7 @@ int main(int argc, char *argv[]) {
 
                 // Estimate energy
                 processes[i].energy_interval_est = estimate_energy_cycles(system_stats.cycles,
-                                                processes[i].cycles_interval, total_energy_used, interval);
+                                processes[i].cycles_interval, total_energy_used, interval);
                 print_pinfo(&processes[i]);
             }
             printf("Interval(%d): total energy (microjoules): %lld, CPU-cycles: %lld\n", 
@@ -257,6 +261,7 @@ int main(int argc, char *argv[]) {
             if (logging_enabled == 1) {
                 // Logging
                 system_stats_to_buffer(&system_stats, total_energy_used, logging_buffer);
+                gpu_stats_to_buffer(logging_buffer);
                 for (int i = 0; i < num_processes; i++)
                 {
                     process_stats_to_buffer(&processes[i], logging_buffer);
@@ -284,6 +289,7 @@ int main(int argc, char *argv[]) {
             energy_after_pkg = read_energy(0);
             energy_after_dram = read_energy(3);
             ret = read_systemwide_stats(&system_stats);
+            get_gpu_stats();
             total_energy_used = check_overflow(energy_before_dram, energy_after_dram) 
                                 + check_overflow(energy_before_pkg, energy_after_pkg);
             // Update containers
@@ -305,6 +311,7 @@ int main(int argc, char *argv[]) {
             if (logging_enabled == 1) {
                 // Logging
                 system_stats_to_buffer(&system_stats, total_energy_used, logging_buffer);
+                gpu_stats_to_buffer(logging_buffer);
                 for (int i = 0; i < num_containers; i++)
                 {
                     container_stats_to_buffer(&containers[i], logging_buffer);

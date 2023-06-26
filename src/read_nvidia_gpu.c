@@ -1,40 +1,139 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <nvml.h>
+#include <string.h>
 #include <inttypes.h>
 
+static nvmlReturn_t result;
+
+static struct gpu_stats *GPU_stats;
+static unsigned int gpu_device_count;
+
+struct gpu_stats {
+    nvmlDevice_t handle;
+    unsigned int max_power; // in miliwatts
+    unsigned int min_power; // in miliwatts
+    unsigned int util; // in % of max over last sample period
+    unsigned int mem_util; // in % of max over last sample period
+    unsigned int fan_speed; // in % of max currently
+    unsigned int temperature; // in °C
+};
+
 // Initialize NVML and GPU device count
-int initialize_gpu(unsigned int *device_count){
-    nvmlReturn_t result;
+int init_gpu() {
 
     // Initialize NVML
     result = nvmlInit();
     if (result != NVML_SUCCESS) {
         printf("Failed to initialize NVML: %s\n", nvmlErrorString(result));
-        return 1;
+        return -1;
     }
 
-    // Get NVIDIA GPU count
-    result = nvmlDeviceGetCount(device_count);
+    // Get NVIDIA GPU device count
+    result = nvmlDeviceGetCount(&gpu_device_count);
     if (result != NVML_SUCCESS) {
         printf("Failed to get device count: %s\n", nvmlErrorString(result));
-        return 1;
+        return -1;
+    }
+
+    GPU_stats = malloc(sizeof(struct gpu_stats) * gpu_device_count);
+    nvmlUtilization_t utilization;
+
+    for (int i = 0; i < gpu_device_count; i++)
+    {
+        struct gpu_stats current = GPU_stats[i];
+        result = nvmlDeviceGetHandleByIndex(i, &GPU_stats[i].handle);
+        result = nvmlDeviceGetPowerManagementLimitConstraints(GPU_stats[i].handle,
+                    &GPU_stats[i].min_power, &GPU_stats[i].max_power);
+        result = nvmlDeviceGetUtilizationRates(GPU_stats[i].handle, &utilization);
+        current.util = utilization.gpu;
+        current.mem_util = utilization.memory;
+        result = nvmlDeviceGetFanSpeed(GPU_stats[i].handle, &GPU_stats[i].fan_speed);
+        result = nvmlDeviceGetTemperature(GPU_stats[i].handle, NVML_TEMPERATURE_GPU, 
+                    &GPU_stats[i].temperature);
+    }
+    printf("GPU count %d\n", gpu_device_count);
+}
+
+// Get current GPU usage
+int get_gpu_stats() {
+
+    nvmlUtilization_t utilization;
+
+    // Loop through all NVIDIA GPUs
+    for (int i = 0; i < gpu_device_count; i++) {
+
+        // Get GPU utilization over last sampling period between 1/6 to 1sec depending on device
+        result = nvmlDeviceGetUtilizationRates(GPU_stats[i].handle, &utilization);
+        if (result != NVML_SUCCESS) {
+            printf("Failed to get utilization for device %u: %s\n", i, nvmlErrorString(result));
+            return -1;
+        }
+        GPU_stats->util = utilization.gpu;
+        GPU_stats->mem_util = utilization.memory;
+
+        /* // Get GPU memory usage
+        result = nvmlDeviceGetMemoryInfo(handle_array[i], &memory);
+        if (result != NVML_SUCCESS) {
+            printf("Failed to get memory info: %s\n", nvmlErrorString(result));
+            return -1;
+        }
+        memory_array[i] = memory;
+        printf("GPU Device %u, Total GPU Memory: %llu bytes\n", i, memory_array[i].total);
+        printf("GPU Device %u, Used GPU Memory: %llu bytes\n", i, memory_array[i].used);
+        printf("GPU Device %u, Free GPU Memory: %llu bytes\n", i, memory_array[i].free);
+        */
+
+        // Get GPU fan speed
+        result = nvmlDeviceGetFanSpeed(GPU_stats[i].handle, &GPU_stats[i].fan_speed);
+        if (result != NVML_SUCCESS) {
+            printf("Failed to get GPU fan speed: %s\n", nvmlErrorString(result));
+            return -1; 
+        }
+
+        // Get GPU temperature
+        result = nvmlDeviceGetTemperature(GPU_stats[i].handle,
+                                NVML_TEMPERATURE_GPU, &GPU_stats[i].temperature);
+        if (result != NVML_SUCCESS) {
+            printf("Failed to get GPU temperature: %s\n", nvmlErrorString(result));
+            return -1; 
+        }
+        printf("GPU%d: util(%%):%u, mem_util(%%):%u, fan(%%):%u, temperature(°C):%u\n",
+            i, utilization.gpu, utilization.memory, GPU_stats[i].fan_speed, GPU_stats[i].temperature);
     }
 }
+
+int gpu_stats_to_buffer(char* buffer) {
+    char toString[256];
+
+    for (int i = 0; i < gpu_device_count; i++)
+    {   
+        struct gpu_stats cur = GPU_stats[i];
+        // device, max_power, min_power, util, mem_util, fan_speed, temperature
+        sprintf(toString, "%u %u %u %u %u %u %u\n", i, cur.max_power, cur.min_power,
+                        cur.util, cur.mem_util, cur.fan_speed, cur.temperature);
+        strcat(buffer, toString);
+        toString[0] = '\0';
+    }
+    
+    return 0;
+}
+
+/* // testing
+
 
 int get_static_info(unsigned int device_count, nvmlDevice_t *handle_array,
                      unsigned int *max_power_array) {
 
-    nvmlReturn_t result;
     nvmlDevice_t device;
-    unsigned int i, max_power, power_min, max_power_constraint;
+    unsigned int max_power, power_min, max_power_constraint;
         
     // Get power limit of each NVIDIA GPU
-    for (i = 0; i < device_count; i++) {
+    for (int i = 0; i < device_count; i++) {
         result = nvmlDeviceGetHandleByIndex(i, &device);
         if (result != NVML_SUCCESS) {
             printf("Failed to get device handle: %s\n", nvmlErrorString(result));
-            return 1;
+            return -1;
         }
         handle_array[i] = device;
 
@@ -42,7 +141,7 @@ int get_static_info(unsigned int device_count, nvmlDevice_t *handle_array,
         result = nvmlDeviceGetPowerManagementLimitConstraints(device, &power_min, &max_power);
         if (result != NVML_SUCCESS) {
             printf("Failed to get power limit constraints: %s\n", nvmlErrorString(result));
-            return 1;
+            return -1;
         }
         printf("Device %d max power limit: %u watts\n", i, max_power / 1000);
         max_power_array[i] = max_power / 1000;
@@ -55,69 +154,13 @@ int get_static_info(unsigned int device_count, nvmlDevice_t *handle_array,
             return 1;
         }
         printf("max power limit: %u watts\n", max_power_constraint / 1000);
-        /**/
+        /**/ /*
     }
     return 0;
 }
 
-// Get current GPU usage
-int get_gpu_info(unsigned int device_count, nvmlDevice_t *handle_array,
-    nvmlUtilization_t *utilization_array, nvmlMemory_t *memory_array, 
-    unsigned int *fan_speed_array, unsigned int *temperature_array){
-
-    nvmlReturn_t result;
-    unsigned int i;
-    nvmlDevice_t device;
-    nvmlUtilization_t utilization;
-    nvmlMemory_t memory;
-    unsigned int temperature, fan_speed;
-
-    // Loop through all NVIDIA GPUs
-    for (i = 0; i < device_count; i++) {
-
-        // Get GPU utilization over last sampling period between 1/6 to 1sec
-        result = nvmlDeviceGetUtilizationRates(handle_array[i], &utilization);
-        if (result != NVML_SUCCESS) {
-            printf("Failed to get utilization for device %u: %s\n", i, nvmlErrorString(result));
-            return 1;
-        }
-        utilization_array[i] = utilization;
-        printf("GPU Device %u, utilization: %u%%\n", i, utilization_array[i].gpu);
-        printf("GPU Device %u, memory utilization: %u%%\n", i, utilization_array[i].memory);
-
-        // Get GPU memory usage
-        result = nvmlDeviceGetMemoryInfo(handle_array[i], &memory);
-        if (result != NVML_SUCCESS) {
-            printf("Failed to get memory info: %s\n", nvmlErrorString(result));
-            return 1;
-        }
-        memory_array[i] = memory;
-        printf("GPU Device %u, Total GPU Memory: %llu bytes\n", i, memory_array[i].total);
-        printf("GPU Device %u, Used GPU Memory: %llu bytes\n", i, memory_array[i].used);
-        printf("GPU Device %u, Free GPU Memory: %llu bytes\n", i, memory_array[i].free);
-
-        // Get GPU fan speed
-        result = nvmlDeviceGetFanSpeed(handle_array[i], &fan_speed);
-        if (result != NVML_SUCCESS) {
-            printf("Failed to get GPU fan speed: %s\n", nvmlErrorString(result));
-            return 1; 
-        }
-        fan_speed_array[i] = fan_speed;
-        printf("GPU Device %u fan speed: %u %% \n", i, fan_speed_array[i]);
-
-        // Get GPU temperature
-        result = nvmlDeviceGetTemperature(handle_array[i], NVML_TEMPERATURE_GPU, &temperature);
-        if (result != NVML_SUCCESS) {
-            printf("Failed to get GPU temperature: %s\n", nvmlErrorString(result));
-            return 1; 
-        }
-        temperature_array[i] = temperature;
-        printf("GPU Device %u temperature: %u degrees Celsius\n", i, temperature_array[i]);
-    }
-}
 
 
-/* // testing
 int main(int argc, char const *argv[]) {
     int gpu_count;
     int res;

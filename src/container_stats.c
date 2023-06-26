@@ -18,8 +18,7 @@
 */ ///////////////////////////////////////////
 
 // TODO
-// - check cgroup.controllers to make sure cpu, memory and io are supported?
-// - use hashmap to store containers for efficiency
+// - use hashmap to store containers for efficiency?
 // - open perf event as group event?
 
 #define MAX_CONTAINERS 25
@@ -42,8 +41,8 @@ static int *cgroup_perf_fds;
 int num_containers = 0; // Number of containers currently stored
 int max_cpus = 0;
 
-int add_docker_container(char *id);
-int remove_docker_container(int i);
+static int add_docker_container(char *id);
+static int remove_docker_container(int i);
 
 int init_docker_container() {
     max_cpus = sysconf(_SC_NPROCESSORS_CONF);
@@ -190,7 +189,7 @@ int update_docker_containers() {
     closedir(dir);
 }
 
-int add_docker_container(char *id_str) {
+static int add_docker_container(char *id_str) {
     if (num_containers == MAX_CONTAINERS) {
         return -1;
     }
@@ -294,7 +293,7 @@ int add_docker_container(char *id_str) {
     return 0;
 }
 
-int remove_docker_container (int i) {
+static int remove_docker_container (int i) {
     // Close associated perf events
     int offset = i*max_cpus;
     for (int j = 0; j < max_cpus; j++)
@@ -310,13 +309,3 @@ int remove_docker_container (int i) {
 
     return 0;
 }
-
-
-
-/* testing
-int main(int argc, char const *argv[])
-{   
-    get_containers();
-    return 0;
-}
-/**/

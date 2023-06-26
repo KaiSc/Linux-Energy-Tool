@@ -45,7 +45,6 @@ long long read_energy(int domain) {
             return 0;
     }
     if (fp == NULL) {
-        perror("Couldn't get filehandle (read_energy). Need sudo");
         return 0;
     }
     fscanf(fp, "%lld", &energy_microjoules);
@@ -89,10 +88,6 @@ int init_rapl() {
     }
     fscanf(fp, "%llu", &max_range);
     fclose(fp);
-
-    // TODO ///
-    // check available rapl domains, packages
-    // TODO ///
     
     return 0;
 }

@@ -1,13 +1,11 @@
 #include <stdio.h>
 #include <sys/resource.h>
-#include <inttypes.h>
 #include <sys/types.h>
 #include <string.h>
 #include "energy.h"
 
 // CPU-Time, I/O, Memory used
 
-// TODO make system_stats object global and remove interval from proc/container
 struct proc_stats { 
     pid_t pid;
     unsigned long cputime; // in clock ticks, divide by sysconf(_SC_CLK_TCK) for seconds
@@ -33,9 +31,7 @@ struct system_stats {
 
 
 int read_process_stats(struct proc_stats *p_info) {
-    char stat_path[64];
-    char io_path[64];
-    char status_path[64];
+    char path[64];
 
     // Save previous values for energy estimation
     unsigned long delta_cputime = p_info->cputime; 
@@ -43,8 +39,8 @@ int read_process_stats(struct proc_stats *p_info) {
     long delta_io_op = p_info->io_op;
 
     // Read /proc/pid/stat file for cpu time
-    snprintf(stat_path, sizeof(stat_path), "/proc/%d/stat", p_info->pid);
-    FILE *fp = fopen(stat_path, "r");
+    snprintf(path, sizeof(path), "/proc/%d/stat", p_info->pid);
+    FILE *fp = fopen(path, "r");
     if (!fp) {
         perror("Couldn't open /proc/pid/stat file");
         return -1;
@@ -59,8 +55,8 @@ int read_process_stats(struct proc_stats *p_info) {
     p_info->cputime = current_utime + current_stime;
 
     // Read proc/pid/io file for I/O operations
-    snprintf(io_path, sizeof(io_path), "/proc/%d/io", p_info->pid);
-    fp = fopen(io_path, "r");
+    snprintf(path, sizeof(path), "/proc/%d/io", p_info->pid);
+    fp = fopen(path, "r");
     if (!fp) {
         perror("Couldn't open /proc/pid/io file");
         return -1;
@@ -76,8 +72,8 @@ int read_process_stats(struct proc_stats *p_info) {
     fclose(fp);
 
     // Read proc/pid/status file for resident set size
-    snprintf(status_path, sizeof(status_path), "/proc/%d/status", p_info->pid);
-    fp = fopen(status_path, "r");
+    snprintf(path, sizeof(path), "/proc/%d/status", p_info->pid);
+    fp = fopen(path, "r");
     if (!fp) {
         perror("Couldn't open /proc/pid/status file");
         return -1;

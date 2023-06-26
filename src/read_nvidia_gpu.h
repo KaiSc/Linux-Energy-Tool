@@ -3,13 +3,20 @@
 
 #include <nvml.h>
 
-int initialize_gpu(unsigned int *device_count);
+struct gpu_stats {
+    nvmlDevice_t handle;
+    unsigned int max_power;
+    unsigned int min_power;
+    unsigned int util;
+    unsigned int mem_util;
+    unsigned int fan_speed;
+    unsigned int temperature;
+};
 
-int get_static_info(unsigned int device_count, nvmlDevice_t *handle_array,
-                     unsigned int *max_power_array);
+int init_gpu();
 
-int get_gpu_info(unsigned int device_count, nvmlDevice_t *handle_array,
-    nvmlUtilization_t *utilization_array, nvmlMemory_t *memory_array, 
-    unsigned int *fan_speed_array, unsigned int *temperature_array);
+int get_gpu_stats();
+
+int gpu_stats_to_buffer(char* buffer);
 
 #endif

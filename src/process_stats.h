@@ -1,8 +1,6 @@
 #ifndef process_stats_h
 #define process_stats_h
 
-#include <inttypes.h>
-
 struct proc_stats 
 { 
     pid_t pid;
