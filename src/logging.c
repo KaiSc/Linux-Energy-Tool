@@ -3,6 +3,7 @@
 #include <string.h>
 #include "process_stats.h"
 #include "container_stats.h"
+#include "benchmarking.h"
 
 FILE* initLogFile() {
     time_t rawtime;
@@ -13,6 +14,26 @@ FILE* initLogFile() {
     timeinfo = localtime(&rawtime);
 
     strftime(filename, sizeof(filename), "logfile_%Y%m%d%H%M%S.txt", timeinfo);
+
+    FILE *file = fopen(filename, "a");
+    if (file == NULL) {
+        printf("Error creating file.\n");
+    }
+
+    return file;
+}
+
+FILE* initBenchLogFile(char* alg_name, char* lang_name) {
+    time_t rawtime;
+    struct tm *timeinfo;
+    char filename[256];
+    char timestamp[128];
+
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+
+    strftime(timestamp, sizeof(timestamp), "%Y%m%d%H%M%S.txt", timeinfo);
+    snprintf(filename, sizeof(filename), "%s_%s_%s", lang_name, alg_name, timestamp);
 
     FILE *file = fopen(filename, "a");
     if (file == NULL) {
@@ -70,6 +91,25 @@ int e_stats_to_buffer(double cpu_time, long max_rss, long io, long long cycles, 
     char toString[256];
     // cputime, ram, io_op, cycles, estimated energy
     sprintf(toString, "%.6f, %ld, %ld, %lld, %lld\n", cpu_time, max_rss, io, cycles, energy);
+
+    strcat(buffer, toString);
+    return 0;
+}
+
+int system_interval_to_buffer(struct system_stats *s_stats, long long energy, char* buffer) {
+    char toString[256];
+    // energy, cputime, ram, io_op, cycles
+    sprintf(toString, "%lld, %lu, %ld, %ld, %lld\n", energy, s_stats->cputime_interval, s_stats->rss_interval, 
+            s_stats->io_op_interval, s_stats->cycles);
+    strcat(buffer, toString);
+    return 0;
+}
+
+int cgroup_stats_to_buffer(struct cgroup_stats *c_stats, double time, char* buffer) {
+    char toString[370];
+    // id, cputime, ram, io_op, cycles, estimated energy
+    sprintf(toString, "%f, %llu, %lld, %lu, %llu, %lld\n", time, c_stats->cputime, c_stats->maxRSS,
+                                c_stats->io_op, c_stats->cycles, c_stats->estimated_energy);
 
     strcat(buffer, toString);
     return 0;

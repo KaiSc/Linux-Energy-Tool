@@ -8,11 +8,13 @@
 #include <sys/resource.h>
 #include <sys/types.h>
 #include <string.h>
+#include <dirent.h>
 #include "energy.h"
 #include "process_stats.h"
 #include "perf_events.h"
 #include "container_stats.h"
 #include "logging.h"
+#include "benchmarking.h"
 #include "read_nvidia_gpu.h"
 
 #define MAX_CPUS sysconf(_SC_NPROCESSORS_CONF)
@@ -22,6 +24,7 @@
 static void print_pinfo(struct proc_stats *p_info);
 static void print_system_stats(struct system_stats *system_info);
 static void print_container_info(struct container_stats *container);
+static void print_cgroup_stats(struct cgroup_stats *cg);
 static void print_help();
 
 
@@ -105,7 +108,6 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < MAX_CPUS; i++) {
             fds_cpu[i] = setUpProcCycles_cpu(i);
         }
-        double time = 0;
         read_systemwide_stats(&system_stats);
         gettimeofday(&start, NULL);
         energy_before_pkg = read_energy(0);
@@ -360,6 +362,123 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    // -b benchmarking
+    /* benchmarking directory
+        - language directories
+            - algorithm directories
+                - source code + run.txt
+    */
+    else if (strcmp(argv[1], "-b") == 0) 
+    {
+        if (argc=3) {
+            init_benchmarking();
+            // Read path to benchmark directory
+            char* directory_path = argv[2];
+            // Enter benchmark directory (languages)
+            DIR *bench_dir = opendir(directory_path);
+            struct dirent *lang_folder;
+            if (bench_dir == NULL) {
+                perror("Unable to open benchmark directory");
+            }
+
+            // Iterate through each directory (language)         
+            while ((lang_folder = readdir(bench_dir)) != NULL) {
+                // Exclude current and parent directory entries
+                if (strcmp(lang_folder->d_name, ".") == 0 || strcmp(lang_folder->d_name, "..") == 0) {
+                    continue;
+                }
+                // Construct the language directory path
+                char lang_dir_path[1024];
+                snprintf(lang_dir_path, sizeof(lang_dir_path), "%s/%s", directory_path, lang_folder->d_name);
+                printf("Opening lang: %s\n", lang_dir_path); // TEST
+                // Open the language directory
+                DIR *lang_dir = opendir(lang_dir_path);
+                if (lang_dir == NULL) {
+                    perror("Unable to open language directory");
+                    continue;
+                }
+                struct dirent *alg_entry;
+                // Iterate through each directory (algorithm) inside the language directory
+                while ((alg_entry = readdir(lang_dir)) != NULL) {
+                    // Exclude current and parent directory entries
+                    if (strcmp(alg_entry->d_name, ".") == 0 || strcmp(alg_entry->d_name, "..") == 0) {
+                        continue;
+                    }
+                    // Construct the algorithm directory path
+                    char alg_dir_path[1300];
+                    snprintf(alg_dir_path, sizeof(alg_dir_path), "%s/%s", lang_dir_path, alg_entry->d_name);
+                    printf("In working directory: %s\n", alg_dir_path); // TEST
+                    // Change working directory
+                    chdir(alg_dir_path);
+
+                    // Reset cgroup statistics and system-wide measurements
+                    char command[256] = "cgexec -g cpu,memory,io:/benchmarking --sticky ";
+                    char line[256];
+                    FILE *fp = fopen("run.txt", "r");
+                    if (fp == NULL) {
+                        printf("no run.txt");
+                        return -1;
+                    }
+                    if (fgets(line, sizeof(line), fp)) {
+                        // Remove newline character from the end
+                        line[strcspn(line, "\n")] = '\0';
+                    }
+                    fclose(fp);
+                    // Concat run.txt
+                    strcat(command, line);
+
+                    // Measurements
+                    struct timeval start, end;
+                    double elapsedTime = 0;
+                    struct cgroup_stats cg_stats;
+                    reset_cgroup();
+                    ret = read_systemwide_stats(&system_stats);
+                    cpu_cycles = 0;
+                    for (int i = 0; i < MAX_CPUS; i++) {
+                        fds_cpu[i] = setUpProcCycles_cpu(i);
+                    }
+                    gettimeofday(&start, NULL);
+                    energy_before_pkg = read_energy(0);
+                    energy_before_dram = read_energy(3);
+
+                    // Run the command
+                    system(command);
+
+                    // Measurements
+                    energy_after_pkg = read_energy(0);
+                    energy_after_dram = read_energy(3);
+                    gettimeofday(&end, NULL);
+                    for (int i = 0; i < MAX_CPUS; i++) {   
+                        cpu_cycles += readInterval(fds_cpu[i]);
+                        closeEvent(fds_cpu[i]);
+                    }
+                    ret = read_systemwide_stats(&system_stats);
+                    read_cgroup_stats(&cg_stats);
+                    system_stats.cycles = cpu_cycles;
+                    total_energy_used = check_overflow(energy_before_dram, energy_after_dram) 
+                                        + check_overflow(energy_before_pkg, energy_after_pkg);
+                    elapsedTime = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) * 1e-6;
+                    cg_stats.estimated_energy = estimate_energy_cycles(system_stats.cycles, cg_stats.cycles, total_energy_used, elapsedTime);
+                    print_cgroup_stats(&cg_stats);
+                    printf("Total energy in microjoules: %lld\n", total_energy_used);
+                    printf("Elapsed time: %f\n", elapsedTime);
+                    // write result to log file cg_stats, energy, estimated energy, elapsed time?
+                    logfile = initBenchLogFile(alg_entry->d_name, lang_folder->d_name);
+                    system_interval_to_buffer(&system_stats, total_energy_used, logging_buffer);
+                    cgroup_stats_to_buffer(&cg_stats, elapsedTime, logging_buffer);
+                    writeToFile(logfile, logging_buffer);
+                    fclose(logfile);
+                    // small break in between to avoid system cleanup activities?
+                    sleep(3);
+                }
+                closedir(lang_dir);
+            }
+            closedir(bench_dir);
+        } else {
+            printf("No directory path provided. \n");
+        }
+
+
     // -h help information
     else if (strcmp(argv[1], "-h") == 0) 
     {
@@ -400,15 +519,24 @@ static void print_container_info(struct container_stats *container) {
     printf("IO-operations: %ld\n", container->io_op_interval);
     printf("Number of CPU cycles: %llu\n", container->cycles_interval);
     printf("Estimated energy in microjoules: %lld\n", container->energy_interval_est);
+}
 
+static void print_cgroup_stats(struct cgroup_stats *cg) {
+    printf("----------------------------------\n");
+    printf("CPU-Time in microseconds: %llu\n", cg->cputime);
+    printf("Max RSS: %lld\n", cg->maxRSS);
+    printf("IO-operations: %lu\n", cg->io_op);
+    printf("Number of CPU cycles: %llu\n", cg->cycles);
+    printf("Estimated energy in microjoules: %lld\n", cg->estimated_energy);
 }
 
 static void print_help() {
     printf("Possible arguments: \n"
-        " -l (logging in combination with others, has to be first) \n"
+        " -l (logging in combination with others (except -b), has to be first) \n"
         " -e (execute a given command, e.g. -e java myprogram) \n"
         " -m (monitor given processes given by their id, e.g. -m 1 2 3) \n"
         " -c (monitor running docker containers) \n"
         " -i (calibration, execute on idle system for idle power) \n"
+        " -b (benchmarking, path to directory with programs and run files) \n"
         " Running with no arguments or only -l will monitor all active processes.\n");
 }
