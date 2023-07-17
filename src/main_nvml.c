@@ -524,7 +524,7 @@ int main(int argc, char *argv[]) {
         } else {
             printf("No directory path provided. \n");
         }
-
+    }
 
     // -h help information
     else if (strcmp(argv[1], "-h") == 0) 
