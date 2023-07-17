@@ -5,12 +5,12 @@
 
 struct gpu_stats {
     nvmlDevice_t handle;
-    unsigned int max_power;
-    unsigned int min_power;
-    unsigned int util;
-    unsigned int mem_util;
-    unsigned int fan_speed;
-    unsigned int temperature;
+    unsigned int max_power; // in watts
+    unsigned int min_power; // in watts
+    unsigned int util; // in %
+    unsigned int mem_util; // in %
+    unsigned int fan_speed; // in %
+    unsigned int temperature; // in %
 };
 
 int init_gpu();

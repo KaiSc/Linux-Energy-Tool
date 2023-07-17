@@ -4,11 +4,11 @@
 struct proc_stats 
 { 
     pid_t pid;
-    unsigned long cputime; // in clock ticks, divide by sysconf(_SC_CLK_TCK) for seconds
-    long rss; // in kilobytes
+    unsigned long cputime; // in jiffies, divide by sysconf(_SC_CLK_TCK) for seconds
+    long rss; // in kB
     long io_op; 
-    unsigned long cputime_interval;
-    long rss_interval;
+    unsigned long cputime_interval; // in jiffies
+    long rss_interval; // in kB
     long io_op_interval;
     long long cycles_interval;
     int fd;
@@ -18,11 +18,11 @@ struct proc_stats
 
 struct system_stats 
 {
-    unsigned long cputime; // in clock ticks, divide by sysconf(_SC_CLK_TCK) for seconds
-    long rss; // in kilobytes
+    unsigned long cputime; // in jiffies, divide by sysconf(_SC_CLK_TCK) for seconds
+    long rss; // in kB
     long io_op;
-    unsigned long cputime_interval;
-    long rss_interval;
+    unsigned long cputime_interval; // in jiffies
+    long rss_interval; // in kB
     long io_op_interval;
     long long cycles;
 };

@@ -29,8 +29,8 @@ struct container_stats {
     long long memory; // in bytes
     unsigned long io_op;
     // TODO process ids
-    unsigned long cputime_interval;
-    long long memory_interval;
+    unsigned long cputime_interval; // in microseconds
+    long long memory_interval; // in bytes
     long io_op_interval;
     unsigned long long cycles_interval;
     long long energy_interval_est; // in microjoules

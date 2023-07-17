@@ -32,12 +32,12 @@ int main(int argc, char *argv[]) {
     pid_t pid;
     int status, ret, fd;
     struct rusage usage;
-    long long energy_before_pkg = 0;
-    long long energy_before_dram = 0;
-    long long energy_after_pkg = 0;
-    long long energy_after_dram = 0;
-    long long total_energy_used = 0;
-    struct system_stats system_stats;
+    long long energy_before_pkg = 0; // microjoules
+    long long energy_before_dram = 0; // microjoules
+    long long energy_after_pkg = 0; // microjoules
+    long long energy_after_dram = 0; // microjoules
+    long long total_energy_used = 0; // microjoules
+    struct system_stats system_stats = {0};
     int fds_cpu[MAX_CPUS];
     long long cpu_cycles = 0;
     int logging_enabled = 0; // Flag to indicate if logging is enabled
@@ -97,6 +97,58 @@ int main(int argc, char *argv[]) {
     // -e (execute a given command, e.g. -e java myprogram)
     else if (strcmp(argv[1], "-e") == 0)
     {
+        // Use cgroup to measure the process and subprocesses
+        init_benchmarking();
+        struct timeval start, end;
+        double elapsedTime = 0;
+        struct cgroup_stats cg_stats = {0};
+        char command[512] = "cgexec -g cpu,memory,io:/benchmarking --sticky ";
+        // Append command line arguments to command
+        for (int i = 2; i < argc; i++) {
+            strcat(command, argv[i]);
+            strcat(command, " ");
+        }
+
+        reset_cgroup();
+        ret = read_systemwide_stats(&system_stats);
+        cpu_cycles = 0;
+        for (int i = 0; i < MAX_CPUS; i++) {
+            fds_cpu[i] = setUpProcCycles_cpu(i);
+        }
+        gettimeofday(&start, NULL);
+        energy_before_pkg = read_energy(0);
+        energy_before_dram = read_energy(3);
+
+        // Run the command
+        system(command);
+
+        // Measurements
+        energy_after_pkg = read_energy(0);
+        energy_after_dram = read_energy(3);
+        gettimeofday(&end, NULL);
+        for (int i = 0; i < MAX_CPUS; i++) {   
+            cpu_cycles += readInterval(fds_cpu[i]);
+            closeEvent(fds_cpu[i]);
+        }
+        ret = read_systemwide_stats(&system_stats);
+        read_cgroup_stats(&cg_stats);
+        system_stats.cycles = cpu_cycles;
+        total_energy_used = check_overflow(energy_before_dram, energy_after_dram) 
+                            + check_overflow(energy_before_pkg, energy_after_pkg);
+        elapsedTime = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) * 1e-6;
+        cg_stats.estimated_energy = estimate_energy_cycles(system_stats.cycles, cg_stats.cycles, total_energy_used, elapsedTime);
+        print_cgroup_stats(&cg_stats);
+        printf("Total energy in microjoules: %lld\n", total_energy_used);
+        printf("Elapsed time: %f\n", elapsedTime);
+        if (logging_enabled == 1) {
+            system_interval_to_buffer(&system_stats, total_energy_used, logging_buffer);
+            cgroup_stats_to_buffer(&cg_stats, elapsedTime, logging_buffer);
+            writeToFile(logfile, logging_buffer);
+            fclose(logfile);
+        }
+
+        ///////////////////////////////////
+        /*
         // Fork to start child process
         argv[argc] = NULL; // Add NULL terminator to argument for execvp
         struct timeval start, end;
@@ -137,8 +189,7 @@ int main(int argc, char *argv[]) {
             printf("Systemwide measured energy in microjoules: %lld" "\n", total_energy_used);
             /* */
 
-            /* // more accurate energy but different statistics */
-            // TODO overflow
+            /* // more accurate energy but different statistics 
             int ret = wait4(pid, &status, 0, &usage);
             if (ret != -1) {
                 energy_after_pkg = read_energy(0);
@@ -175,7 +226,8 @@ int main(int argc, char *argv[]) {
                     writeToFile(logfile, logging_buffer);
                 }
             }
-        } 
+        }
+        */
         return 0;
     }
 
@@ -504,7 +556,7 @@ static void print_container_info(struct container_stats *container) {
     printf("----------------------------------\n");
     printf("Container: %s\n", container->id);
     printf("CPU-Time in microseconds: %lu\n", container->cputime_interval);
-    printf("Resident set size change in Bytes: %lld\n", container->memory_interval);
+    printf("Resident set size change in bytes: %lld\n", container->memory_interval);
     printf("IO-operations: %ld\n", container->io_op_interval);
     printf("Number of CPU cycles: %llu\n", container->cycles_interval);
     printf("Estimated energy in microjoules: %lld\n", container->energy_interval_est);
@@ -513,7 +565,7 @@ static void print_container_info(struct container_stats *container) {
 static void print_cgroup_stats(struct cgroup_stats *cg) {
     printf("----------------------------------\n");
     printf("CPU-Time in microseconds: %llu\n", cg->cputime);
-    printf("Max RSS: %lld\n", cg->maxRSS);
+    printf("Max RSS in bytes: %lld\n", cg->maxRSS);
     printf("IO-operations: %lu\n", cg->io_op);
     printf("Number of CPU cycles: %llu\n", cg->cycles);
     printf("Estimated energy in microjoules: %lld\n", cg->estimated_energy);

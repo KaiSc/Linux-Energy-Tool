@@ -45,8 +45,8 @@ int read_process_stats(struct proc_stats *p_info) {
         perror("Couldn't open /proc/pid/stat file");
         return -1;
     }
-    unsigned long current_utime; // user cpu time
-    unsigned long current_stime; // system cpu time
+    unsigned long current_utime; // user cpu time in jiffies
+    unsigned long current_stime; // system cpu time in jiffies
     char state;
     // Parenthesis skip for name field, utime14, stime15, 
     int ret = fscanf(fp, "%*d (%*[^)]) %c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu ",
@@ -87,7 +87,7 @@ int read_process_stats(struct proc_stats *p_info) {
     }
     fclose(fp);
 
-    // If just created, skip estimation
+    // If just created, skip
     if (p_info->rss == 0) {
         return 0;
     }
@@ -113,8 +113,8 @@ int read_systemwide_stats(struct system_stats *sys_stats) {
         return -1;
     }
     // Add up all besides idle
-    unsigned long long user, nice, system, idle, iowait, irq, softirq, steal, guest, guest_nice;
-    unsigned long long total_cpu_time = 0;
+    unsigned long long user, nice, system, idle, iowait, irq, softirq, steal, guest, guest_nice; // in jiffies
+    unsigned long long total_cpu_time = 0; // in jiffies
 
     while (fgets(line, sizeof(line), fp)) {
         if (strncmp(line, "cpu ", 4) != 0) { // should be first line
@@ -135,7 +135,7 @@ int read_systemwide_stats(struct system_stats *sys_stats) {
         return -1;
     }
 
-    unsigned long mem_total, mem_free;
+    unsigned long mem_total, mem_free; // in kB
     while (fgets(line, sizeof(line), fp)) {
         if (strncmp(line, "MemTotal:", 9) == 0) {
             sscanf(line, "MemTotal: %ld kB", &mem_total);

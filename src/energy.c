@@ -16,9 +16,9 @@
 // potentially more packages which one to check, all?
 // pp0 + pp1 <= pkg, dram independent, pkg + dram <= psys includes all
 
-static long long max_range;
-static long long idle_consumption;
-static long long idle_min;
+static long long max_range; // in microjoules
+static long long idle_consumption; // in microjoules
+static long long idle_min; // in microjoules
 
 // 0->pkg, 1->cores, 2->uncore, 3->dram, 4->psys, seperate functions more energy efficient?
 long long read_energy(int domain) {
@@ -92,7 +92,7 @@ int init_rapl() {
     return 0;
 }
 
-// Use statistics to estimate consumed energy
+// Use statistics to estimate consumed energy in microjoules
 long long estimate_energy_cycles(long long cpu_cycles, long long cpu_cycles_proc,
         long long energy_interval, double time)
 {

@@ -107,7 +107,7 @@ int system_interval_to_buffer(struct system_stats *s_stats, long long energy, ch
 
 int cgroup_stats_to_buffer(struct cgroup_stats *c_stats, double time, char* buffer) {
     char toString[370];
-    // id, cputime, ram, io_op, cycles, estimated energy
+    // cputime, ram, io_op, cycles, estimated energy
     sprintf(toString, "%f, %llu, %lld, %lu, %llu, %lld\n", time, c_stats->cputime, c_stats->maxRSS,
                                 c_stats->io_op, c_stats->cycles, c_stats->estimated_energy);
 
