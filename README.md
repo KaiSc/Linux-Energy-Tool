@@ -9,4 +9,4 @@ optionally Nvidia GPU and NVML library installed
 compile without NVML:  
 gcc main.c container_stats.c energy.c perf_events.c process_stats.c logging.c benchmarking.c -o main  
 compile with NVML:  
-gcc main_nvml.c container_stats.c energy.c perf_events.c process_stats.c logging.c benchmarking.c read_nvidia_gpu.c -o main_nvml -lnvidia-ml  
+gcc main_nvml.c container_stats.c energy.c perf_events.c process_stats.c logging.c benchmarking.c read_nvidia_gpu.c -o main_nvml -lnvidia-ml -lpthread  

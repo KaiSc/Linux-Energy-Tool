@@ -7,7 +7,7 @@
 #include "perf_events.h"
 
 
-#define cgroup_path "/sys/fs/cgroup/benchmarking/"
+#define cgroup_path "/sys/fs/cgroup/benchmarking"
 
 struct cgroup_stats { 
     unsigned long long cputime; // in microseconds
@@ -20,17 +20,31 @@ struct cgroup_stats {
 
 static int max_cpus = 0;
 static int *cgroup_perf_fds;
+static char cgroup_path_id[220];
+static char cgroup_path_id_cpu[256];
+static char cgroup_path_id_mem[256];
+static char cgroup_path_id_io[256];
+pid_t cgroup_id;
+
 
 int init_benchmarking() {
     max_cpus = sysconf(_SC_NPROCESSORS_CONF);
     cgroup_perf_fds = malloc(sizeof(int) * max_cpus);
+    // Add pid to cgroup path in case multiple instances running at same time
+    cgroup_id = getpid();
+    // Create the cgroup_path_id strings
+    snprintf(cgroup_path_id, 220, "%s_%d", cgroup_path, cgroup_id);
+    snprintf(cgroup_path_id_cpu, 256, "%s%s", cgroup_path_id, "/cpu.stat");
+    snprintf(cgroup_path_id_mem, 256, "%s%s", cgroup_path_id, "/memory.peak");
+    snprintf(cgroup_path_id_io, 256, "%s%s", cgroup_path_id, "/io.stat");
+
 }
 
 int reset_cgroup() {
-    int status = rmdir(cgroup_path);
-    status = mkdir(cgroup_path, 0777);
+    int status = rmdir(cgroup_path_id);
+    status = mkdir(cgroup_path_id, 0777);
 
-    int fd = open(cgroup_path, O_RDONLY);
+    int fd = open(cgroup_path_id, O_RDONLY);
     for (int i = 0; i < max_cpus; i++)
     {
         cgroup_perf_fds[i] = setUpProcCycles_cgroup(fd, i);
@@ -45,7 +59,7 @@ int close_cgroup() {
     {
         close(cgroup_perf_fds[i]);
     }
-    int status = rmdir(cgroup_path);
+    int status = rmdir(cgroup_path_id);
     return 0;
 }
 
@@ -67,7 +81,7 @@ int read_cgroup_stats(struct cgroup_stats *cg_stats) {
     cg_stats->cycles = cpu_cycles;
 
     // CPU time
-    fp = fopen("/sys/fs/cgroup/benchmarking/cpu.stat", "r");
+    fp = fopen(cgroup_path_id_cpu, "r");
     if (fp == NULL) {
         perror("Couldn't open /cpu.stat file");
         return -1;
@@ -77,7 +91,7 @@ int read_cgroup_stats(struct cgroup_stats *cg_stats) {
     fclose(fp);
 
     // Peak Memory
-    fp = fopen("/sys/fs/cgroup/benchmarking/memory.peak", "r");
+    fp = fopen(cgroup_path_id_mem, "r");
     if (fp == NULL) {
         perror("Couldn't open /memory.peak file");
         return -1;
@@ -86,7 +100,7 @@ int read_cgroup_stats(struct cgroup_stats *cg_stats) {
     fclose(fp);
 
     // IO-stats
-    fp = fopen("/sys/fs/cgroup/benchmarking/io.stat", "r");
+    fp = fopen(cgroup_path_id_io, "r");
     if (fp == NULL) {
         perror("Couldn't open /io.stat file");
         return -1;

@@ -15,8 +15,11 @@ struct gpu_stats {
 
 int init_gpu();
 
-int get_gpu_stats();
+long long get_gpu_stats();
 
 int gpu_stats_to_buffer(char* buffer);
+
+void print_gpu_stats();
+
 
 #endif

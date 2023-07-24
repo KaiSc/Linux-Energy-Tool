@@ -3,6 +3,7 @@
 #include <nvml.h>
 #include <string.h>
 #include <inttypes.h>
+#include <math.h>
 
 static nvmlReturn_t result;
 
@@ -55,10 +56,11 @@ int init_gpu() {
     printf("GPU count %d\n", gpu_device_count);
 }
 
-// Get current GPU usage
-int get_gpu_stats() {
+// Get current GPU usage, estimate energy for 1 second, divide by actual interval
+long long get_gpu_stats() {
 
     nvmlUtilization_t utilization;
+    long long estimated_energy = 0;
 
     // Loop through all NVIDIA GPUs
     for (int i = 0; i < gpu_device_count; i++) {
@@ -98,8 +100,15 @@ int get_gpu_stats() {
             printf("Failed to get GPU temperature: %s\n", nvmlErrorString(result));
             return -1; 
         }
-        printf("GPU%d: util(%%):%u, mem_util(%%):%u, fan(%%):%u, temperature(°C):%u\n",
-            i, utilization.gpu, utilization.memory, GPU_stats[i].fan_speed, GPU_stats[i].temperature);
+
+        // Estimate GPU energy in microjoules, TODO rough division into memory, computation and fan energy
+        estimated_energy += llround((double) GPU_stats[i].util * (double) GPU_stats[i].max_power * 10.0);
+
+        // Print measurements
+        //printf("GPU%d: util(%%):%u, mem_util(%%):%u, fan(%%):%u, temperature(°C):%u\n",
+        //    i, utilization.gpu, utilization.memory, GPU_stats[i].fan_speed, GPU_stats[i].temperature);
+        
+        return estimated_energy;
     }
 }
 
@@ -117,6 +126,13 @@ int gpu_stats_to_buffer(char* buffer) {
     }
     
     return 0;
+}
+
+void print_gpu_stats() {
+    for (int i = 0; i < gpu_device_count; i++) {
+        printf("Current stats for GPU%d: util(%%):%u, mem_util(%%):%u, fan(%%):%u, temperature(°C):%u\n",
+            i, GPU_stats[i].util, GPU_stats[i].mem_util, GPU_stats[i].fan_speed, GPU_stats[i].temperature);
+    }
 }
 
 /* // testing

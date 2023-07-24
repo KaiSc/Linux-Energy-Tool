@@ -16,6 +16,8 @@
 #include "logging.h"
 #include "benchmarking.h"
 #include "read_nvidia_gpu.h"
+#include <pthread.h>
+#include <math.h>
 
 #define MAX_CPUS sysconf(_SC_NPROCESSORS_CONF)
 #define CLK_TCK sysconf(_SC_CLK_TCK)
@@ -26,7 +28,11 @@ static void print_system_stats(struct system_stats *system_info);
 static void print_container_info(struct container_stats *container);
 static void print_cgroup_stats(struct cgroup_stats *cg);
 static void print_help();
+static void* gpu_thread_func();
 
+
+static long long gpu_energy_est = 0; // microjoules
+static int terminate_gpu_thread = 0; 
 
 int main(int argc, char *argv[]) {
     pid_t pid;
@@ -42,7 +48,8 @@ int main(int argc, char *argv[]) {
     long long cpu_cycles = 0;
     int logging_enabled = 0; // Flag to indicate if logging is enabled
     char logging_buffer[4096] = "";
-    FILE *logfile;
+    FILE *logfile = NULL;
+    pthread_t gpu_thread_id; // GPU measurements during executions
     
     init_rapl();
     init_gpu();
@@ -61,6 +68,9 @@ int main(int argc, char *argv[]) {
     // No arguments provided, system-wide monitoring
     if (argc < 2) 
     {
+        // Start GPU_Thread to measure more frequently
+        pthread_create(&gpu_thread_id, NULL, gpu_thread_func, NULL);
+
         // Set up system-wide cycles
         for (int i = 0; i < MAX_CPUS; i++) {
             fds_cpu[i] = setUpProcCycles_cpu(i);
@@ -68,6 +78,7 @@ int main(int argc, char *argv[]) {
         while (1)
         {
             cpu_cycles = 0;
+            gpu_energy_est = 0;
             energy_before_pkg = read_energy(0);
             energy_before_dram = read_energy(3);
             ret = read_systemwide_stats(&system_stats);
@@ -81,18 +92,19 @@ int main(int argc, char *argv[]) {
             energy_after_pkg = read_energy(0);
             energy_after_dram = read_energy(3);
             ret = read_systemwide_stats(&system_stats);
-            get_gpu_stats();
             total_energy_used = check_overflow(energy_before_dram, energy_after_dram) 
                                 + check_overflow(energy_before_pkg, energy_after_pkg);
             print_system_stats(&system_stats);
-            printf("Interval(%d): total energy (microjoules): %lld, CPU-cycles: %lld\n", 
-                interval, total_energy_used, system_stats.cycles);
+            printf("Interval(%d): total RAPL energy (microjoules): %lld, CPU-cycles: %lld, estimated GPU energy: %lld\n", 
+                interval, total_energy_used, system_stats.cycles, gpu_energy_est);
+            print_gpu_stats();
             if(logging_enabled == 1) {
                 system_stats_to_buffer(&system_stats, total_energy_used, logging_buffer);
                 gpu_stats_to_buffer(logging_buffer);
                 writeToFile(logfile, logging_buffer);
             }
         }
+        terminate_gpu_thread = 1;
         
         return 0;
     }
@@ -105,14 +117,23 @@ int main(int argc, char *argv[]) {
         struct timeval start, end;
         double elapsedTime = 0;
         struct cgroup_stats cg_stats = {0};
-        char command[512] = "cgexec -g cpu,memory,io:/benchmarking --sticky ";
+        char first_part[64] = "cgexec -g cpu,memory,io:/benchmarking";
+        char second_part[16] = " --sticky ";
+        char command[512] = "";
+        snprintf(command, sizeof(command), "%s_%d%s", first_part, cgroup_id, second_part);
+
         // Append command line arguments to command
         for (int i = 2; i < argc; i++) {
             strcat(command, argv[i]);
             strcat(command, " ");
         }
-
+        
+        // Create cgroup
         reset_cgroup();
+
+        // Start GPU measurements
+        pthread_create(&gpu_thread_id, NULL, gpu_thread_func, NULL);
+
         ret = read_systemwide_stats(&system_stats);
         cpu_cycles = 0;
         for (int i = 0; i < MAX_CPUS; i++) {
@@ -133,15 +154,17 @@ int main(int argc, char *argv[]) {
             cpu_cycles += readInterval(fds_cpu[i]);
             closeEvent(fds_cpu[i]);
         }
-        ret = read_systemwide_stats(&system_stats);
+        terminate_gpu_thread = 1;
+        read_systemwide_stats(&system_stats);
         read_cgroup_stats(&cg_stats);
-        system_stats.cycles = cpu_cycles;
         total_energy_used = check_overflow(energy_before_dram, energy_after_dram) 
                             + check_overflow(energy_before_pkg, energy_after_pkg);
         elapsedTime = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) * 1e-6;
+        system_stats.cycles = cpu_cycles;
         cg_stats.estimated_energy = estimate_energy_cycles(system_stats.cycles, cg_stats.cycles, total_energy_used, elapsedTime);
         print_cgroup_stats(&cg_stats);
-        printf("Total energy in microjoules: %lld\n", total_energy_used);
+        printf("Total RAPL energy in microjoules: %lld\n", total_energy_used);
+        printf("Total estimated GPU energy in microjoules: %lld\n", gpu_energy_est);
         printf("Elapsed time: %f\n", elapsedTime);
         if (logging_enabled == 1) {
             system_interval_to_buffer(&system_stats, total_energy_used, logging_buffer);
@@ -231,6 +254,7 @@ int main(int argc, char *argv[]) {
             }
         }
         */
+        close_cgroup();
         return 0;
     }
 
@@ -255,6 +279,10 @@ int main(int argc, char *argv[]) {
             processes[i].energy_interval_est = 0;
             ret = read_process_stats(&processes[i]);
         }
+
+        // Start GPU measurements 
+        pthread_create(&gpu_thread_id, NULL, gpu_thread_func, NULL);
+
         ret = read_systemwide_stats(&system_stats);
         // Set up system-wide cycles
         for (int i = 0; i < MAX_CPUS; i++)
@@ -263,16 +291,16 @@ int main(int argc, char *argv[]) {
         }
         while (num_processes > 0) 
         {
+            cpu_cycles = 0;
+            gpu_energy_est = 0;
             energy_before_pkg = read_energy(0);
             energy_before_dram = read_energy(3);
-            cpu_cycles = 0;
 
             sleep(interval);
 
             energy_after_pkg = read_energy(0);
             energy_after_dram = read_energy(3);
             read_systemwide_stats(&system_stats);
-            get_gpu_stats();
             total_energy_used = check_overflow(energy_before_pkg, energy_after_pkg)
                                 + check_overflow(energy_before_dram, energy_after_dram);
             
@@ -305,8 +333,9 @@ int main(int argc, char *argv[]) {
                                 processes[i].cycles_interval, total_energy_used, interval);
                 print_pinfo(&processes[i]);
             }
-            printf("Interval(%d): total energy (microjoules): %lld, CPU-cycles: %lld\n", 
-                interval, total_energy_used, system_stats.cycles);
+            printf("Interval(%d): total RAPL energy (microjoules): %lld, CPU-cycles: %lld, estimated GPU energy: %lld\n", 
+                interval, total_energy_used, system_stats.cycles, gpu_energy_est);
+            print_gpu_stats();
             if (logging_enabled == 1) {
                 // Logging
                 system_stats_to_buffer(&system_stats, total_energy_used, logging_buffer);
@@ -318,6 +347,7 @@ int main(int argc, char *argv[]) {
                 writeToFile(logfile, logging_buffer);
             }
         }
+        terminate_gpu_thread = 1;
         free(processes);
     }
 
@@ -325,12 +355,17 @@ int main(int argc, char *argv[]) {
     else if (strcmp(argv[1], "-c") == 0)
     {
         init_docker_container();
+
+        // Start GPU measurements 
+        pthread_create(&gpu_thread_id, NULL, gpu_thread_func, NULL);
+
         // Set up system-wide cycles
         for (int i = 0; i < MAX_CPUS; i++) {
             fds_cpu[i] = setUpProcCycles_cpu(i);
         }
         get_docker_containers();
         while(1) {
+            gpu_energy_est = 0;
             cpu_cycles = 0;
             energy_before_pkg = read_energy(0);
             energy_before_dram = read_energy(3);
@@ -338,16 +373,15 @@ int main(int argc, char *argv[]) {
             energy_after_pkg = read_energy(0);
             energy_after_dram = read_energy(3);
             ret = read_systemwide_stats(&system_stats);
-            get_gpu_stats();
             total_energy_used = check_overflow(energy_before_dram, energy_after_dram) 
                                 + check_overflow(energy_before_pkg, energy_after_pkg);
             // Update containers
-            // TODO estimate energy in updating
             update_docker_containers();
             for (int i = 0; i < MAX_CPUS; i++) {   
                 cpu_cycles += readInterval(fds_cpu[i]);
             }
             system_stats.cycles = cpu_cycles;
+            // TODO estimate energy in update_docker_containers()
             // Estimate energy
             for (int i = 0; i < num_containers; i++)
             {
@@ -355,8 +389,9 @@ int main(int argc, char *argv[]) {
                     containers[i].cycles_interval, total_energy_used, interval);
                 print_container_info(&containers[i]);
             }
-            printf("Interval(%d): total energy (microjoules): %lld, CPU-cycles: %lld\n", 
-                interval, total_energy_used, system_stats.cycles);
+            printf("Interval(%d): total RAPL energy (microjoules): %lld, CPU-cycles: %lld, estimated GPU energy: %lld\n", 
+                interval, total_energy_used, system_stats.cycles, gpu_energy_est);
+            print_gpu_stats();
             if (logging_enabled == 1) {
                 // Logging
                 system_stats_to_buffer(&system_stats, total_energy_used, logging_buffer);
@@ -368,6 +403,7 @@ int main(int argc, char *argv[]) {
                 writeToFile(logfile, logging_buffer);
             }
         }
+        terminate_gpu_thread = 1;
     }
 
     // -i (calibration, execute on idle system for idle energy per second)
@@ -418,7 +454,12 @@ int main(int argc, char *argv[]) {
     else if (strcmp(argv[1], "-b") == 0) 
     {
         if (argc=3) {
+            
+            // Start GPU measurements 
+            pthread_create(&gpu_thread_id, NULL, gpu_thread_func, NULL);
+
             init_benchmarking();
+
             // Read path to benchmark directory
             char* directory_path = argv[2];
             // Enter benchmark directory (languages)
@@ -459,7 +500,10 @@ int main(int argc, char *argv[]) {
                     chdir(alg_dir_path);
 
                     // Reset cgroup statistics and system-wide measurements
-                    char command[256] = "cgexec -g cpu,memory,io:/benchmarking --sticky ";
+                    char first_part[64] = "cgexec -g cpu,memory,io:/benchmarking";
+                    char second_part[16] = " --sticky ";
+                    char command[512] = "";
+                    snprintf(command, sizeof(command), "%s_%d%s", first_part, cgroup_id, second_part);
                     char line[256];
                     FILE *fp = fopen("run.txt", "r");
                     if (fp == NULL) {
@@ -479,7 +523,9 @@ int main(int argc, char *argv[]) {
                     double elapsedTime = 0;
                     struct cgroup_stats cg_stats;
                     reset_cgroup();
+
                     ret = read_systemwide_stats(&system_stats);
+                    gpu_energy_est = 0;
                     cpu_cycles = 0;
                     for (int i = 0; i < MAX_CPUS; i++) {
                         fds_cpu[i] = setUpProcCycles_cpu(i);
@@ -507,9 +553,10 @@ int main(int argc, char *argv[]) {
                     elapsedTime = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) * 1e-6;
                     cg_stats.estimated_energy = estimate_energy_cycles(system_stats.cycles, cg_stats.cycles, total_energy_used, elapsedTime);
                     print_cgroup_stats(&cg_stats);
-                    printf("Total energy in microjoules: %lld\n", total_energy_used);
+                    printf("Total RAPL energy in microjoules: %lld\n", total_energy_used);
+                    printf("Total estimated GPU energy in microjoules: %lld\n", gpu_energy_est);
                     printf("Elapsed time: %f\n", elapsedTime);
-                    // write result to log file cg_stats, energy, estimated energy, elapsed time?
+                    // write result to log file cg_stats, energy, estimated energy, elapsed time
                     logfile = initBenchLogFile(alg_entry->d_name, lang_folder->d_name);
                     system_interval_to_buffer(&system_stats, total_energy_used, logging_buffer);
                     cgroup_stats_to_buffer(&cg_stats, elapsedTime, logging_buffer);
@@ -521,6 +568,8 @@ int main(int argc, char *argv[]) {
                 closedir(lang_dir);
             }
             closedir(bench_dir);
+            close_cgroup();
+            terminate_gpu_thread = 1;
         } else {
             printf("No directory path provided. \n");
         }
@@ -538,6 +587,14 @@ int main(int argc, char *argv[]) {
     }
 }
 
+void* gpu_thread_func() {
+    // NVML documentation updates on statistics between 1/6second to 1second
+    while (terminate_gpu_thread == 0) {
+        gpu_energy_est += (long long) ((double) get_gpu_stats() / 10.0); 
+        usleep(100000);
+    }
+    pthread_exit(NULL);
+}
 
 static void print_pinfo(struct proc_stats *p_info) {
     printf("----------------------------------\n");

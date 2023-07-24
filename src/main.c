@@ -102,14 +102,20 @@ int main(int argc, char *argv[]) {
         struct timeval start, end;
         double elapsedTime = 0;
         struct cgroup_stats cg_stats = {0};
-        char command[512] = "cgexec -g cpu,memory,io:/benchmarking --sticky ";
+        char first_part[64] = "cgexec -g cpu,memory,io:/benchmarking";
+        char second_part[16] = " --sticky ";
+        char command[512] = "";
+        snprintf(command, sizeof(command), "%s_%d%s", first_part, cgroup_id, second_part);
+
         // Append command line arguments to command
         for (int i = 2; i < argc; i++) {
             strcat(command, argv[i]);
             strcat(command, " ");
         }
 
+        // Create cgroup
         reset_cgroup();
+
         ret = read_systemwide_stats(&system_stats);
         cpu_cycles = 0;
         for (int i = 0; i < MAX_CPUS; i++) {
@@ -228,6 +234,7 @@ int main(int argc, char *argv[]) {
             }
         }
         */
+        close_cgroup();
         return 0;
     }
 
@@ -452,7 +459,10 @@ int main(int argc, char *argv[]) {
                     chdir(alg_dir_path);
 
                     // Reset cgroup statistics and system-wide measurements
-                    char command[256] = "cgexec -g cpu,memory,io:/benchmarking --sticky ";
+                    char first_part[64] = "cgexec -g cpu,memory,io:/benchmarking";
+                    char second_part[16] = " --sticky ";
+                    char command[512] = "";
+                    snprintf(command, sizeof(command), "%s_%d%s", first_part, cgroup_id, second_part);
                     char line[256];
                     FILE *fp = fopen("run.txt", "r");
                     if (fp == NULL) {
@@ -472,6 +482,7 @@ int main(int argc, char *argv[]) {
                     double elapsedTime = 0;
                     struct cgroup_stats cg_stats;
                     reset_cgroup();
+
                     ret = read_systemwide_stats(&system_stats);
                     cpu_cycles = 0;
                     for (int i = 0; i < MAX_CPUS; i++) {
@@ -514,6 +525,7 @@ int main(int argc, char *argv[]) {
                 closedir(lang_dir);
             }
             closedir(bench_dir);
+            close_cgroup();
         } else {
             printf("No directory path provided. \n");
         }

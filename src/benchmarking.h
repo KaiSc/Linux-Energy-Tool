@@ -1,6 +1,8 @@
 #ifndef benchmarking_h
 #define benchmarking_h
 
+extern pid_t cgroup_id;
+
 struct cgroup_stats { 
     unsigned long long cputime; // in microseconds
     long long maxRSS; // in bytes
