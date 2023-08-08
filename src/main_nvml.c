@@ -562,6 +562,8 @@ int main(int argc, char *argv[]) {
                     cgroup_stats_to_buffer(&cg_stats, elapsedTime, logging_buffer);
                     writeToFile(logfile, logging_buffer);
                     fclose(logfile);
+                    // Clear cache for consistent and fair I/O statistics
+                    system("echo 3 > /proc/sys/vm/drop_caches");
                     // small break in between to avoid system cleanup activities?
                     sleep(3);
                 }
@@ -629,7 +631,7 @@ static void print_cgroup_stats(struct cgroup_stats *cg) {
     printf("----------------------------------\n");
     printf("CPU-Time in microseconds: %llu\n", cg->cputime);
     printf("Max RSS in bytes: %lld\n", cg->maxRSS);
-    printf("IO-operations: %lu\n", cg->io_op);
+    printf("IO-operations: %lu; r_bytes: %llu, w_bytes: %llu\n", cg->io_op, cg->r_bytes, cg->w_bytes);
     printf("Number of CPU cycles: %llu\n", cg->cycles);
     printf("Estimated energy in microjoules: %lld\n", cg->estimated_energy);
 }

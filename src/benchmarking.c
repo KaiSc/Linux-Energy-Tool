@@ -15,6 +15,8 @@ struct cgroup_stats {
     unsigned long io_op;
     unsigned long long cycles;
     long long estimated_energy; // in microjoules
+    long long r_bytes; // read disk bytes
+    long long w_bytes; // written disk bytes
 };
 
 
@@ -106,19 +108,20 @@ int read_cgroup_stats(struct cgroup_stats *cg_stats) {
         return -1;
     }
     // Read the io.stat file
-    char line[256];
-    unsigned long long rbytes = 0, wbytes = 0, rios = 0, wios = 0, ios = 0;
-    if (fgets(line, sizeof(line), fp)) {
-        if (sscanf(line, "%*d:%*d rbytes=%llu wbytes=%llu rios=%llu wios=%llu", &rbytes, &wbytes, &rios, &wios) == 4) {
-            /*printf("Container Read Bytes: %llu\n", rbytes);
-            printf("Container Write Bytes: %llu\n", wbytes);
-            printf("Container Read I/Os: %llu\n", rios);
-            printf("Container Write I/Os: %llu\n", wios);*/
-        }
+    long long total_IO = 0, total_rbytes = 0, total_wbytes = 0;
+    char line[320];
+    while (fgets(line, sizeof(line), fp)) {
+        unsigned long long rbytes = 0, wbytes = 0, rios = 0, wios = 0, ios = 0;
+        sscanf(line, "%*d:%*d rbytes=%llu wbytes=%llu rios=%llu wios=%llu dbytes=%*d dios=%*d",
+            &rbytes, &wbytes, &rios, &wios);
+        total_IO += rios + wios;
+        total_rbytes += rbytes;
+        total_wbytes += wbytes;
     }
     fclose(fp);
-    ios = rios + wios;
-    cg_stats->io_op = ios;
+    cg_stats->io_op = total_IO;
+    cg_stats->r_bytes = total_rbytes;
+    cg_stats->w_bytes = total_wbytes;
 
     return 0;
 }

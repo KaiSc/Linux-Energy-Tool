@@ -9,6 +9,8 @@ struct cgroup_stats {
     unsigned long io_op;
     unsigned long long cycles;
     long long estimated_energy; // in microjoules
+    long long r_bytes; // read disk bytes
+    long long w_bytes; // written disk bytes
 };
 
 int init_benchmarking();
