@@ -46,6 +46,7 @@ int init_gpu() {
         result = nvmlDeviceGetHandleByIndex(i, &GPU_stats[i].handle);
         result = nvmlDeviceGetPowerManagementLimitConstraints(GPU_stats[i].handle,
                     &GPU_stats[i].min_power, &GPU_stats[i].max_power);
+        printf("Min power mW:%u, Max power mW: %u \n", GPU_stats[i].min_power,  GPU_stats[i].max_power);
         result = nvmlDeviceGetUtilizationRates(GPU_stats[i].handle, &utilization);
         current.util = utilization.gpu;
         current.mem_util = utilization.memory;
@@ -119,7 +120,7 @@ int gpu_stats_to_buffer(char* buffer) {
     {   
         struct gpu_stats cur = GPU_stats[i];
         // device, max_power, min_power, util, mem_util, fan_speed, temperature
-        sprintf(toString, "%u %u %u %u %u %u %u\n", i, cur.max_power, cur.min_power,
+        sprintf(toString, "%u;%u;%u;%u;%u;%u;%u\n", i, cur.max_power, cur.min_power,
                         cur.util, cur.mem_util, cur.fan_speed, cur.temperature);
         strcat(buffer, toString);
         toString[0] = '\0';

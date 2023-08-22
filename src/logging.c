@@ -105,6 +105,15 @@ int system_interval_to_buffer(struct system_stats *s_stats, long long energy, ch
     return 0;
 }
 
+int system_interval_gpu_to_buffer(struct system_stats *s_stats, long long energy, long long gpu_energy, char* buffer) {
+    char toString[256];
+    // energy_total_rapl_uj, cputime_jiffies, ram_kB, io_op, cycles
+    sprintf(toString, "%lld;%lld;%lu;%ld;%ld;%lld\n", energy, gpu_energy, s_stats->cputime_interval, s_stats->rss_interval, 
+            s_stats->io_op_interval, s_stats->cycles);
+    strcat(buffer, toString);
+    return 0;
+}
+
 int cgroup_stats_to_buffer(struct cgroup_stats *c_stats, double time, char* buffer) {
     char toString[512];
     // time, cputime_us, max_ram_bytes, io_op, cycles, estimated_energy_uj

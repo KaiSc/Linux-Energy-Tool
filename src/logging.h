@@ -17,6 +17,8 @@ int e_stats_to_buffer(double cpu_time, long max_rss, long io, long long cycles, 
 
 int system_interval_to_buffer(struct system_stats *s_stats, long long energy, char* buffer);
 
+int system_interval_gpu_to_buffer(struct system_stats *s_stats, long long energy, long long gpu_energy, char* buffer);
+
 int cgroup_stats_to_buffer(struct cgroup_stats *c_stats, double time, char* buffer);
 
 #endif
