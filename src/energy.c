@@ -5,7 +5,7 @@
 #include <string.h>
 #include "energy.h"
 
-// TODO hardcoded powercap energy paths
+// TODO hardcoded energy paths
 #define RAPL_PKG_ENERGY_FILE "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/energy_uj"
 #define RAPL_CORE_ENERGY_FILE "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/intel-rapl:0:0/energy_uj"
 #define RAPL_UNCORE_ENERGY_FILE "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/intel-rapl:0:1/energy_uj"
@@ -13,14 +13,14 @@
 #define RAPL_PSYS_ENERGY_FILE "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:1/energy_uj"
 #define RAPL_MAX_RANGE "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/max_energy_range_uj"
 
-// potentially more packages which one to check, all?
+// potentially more packages 
 // pp0 + pp1 <= pkg, dram independent, pkg + dram <= psys includes all
 
 static long long max_range; // in microjoules
 static long long idle_consumption; // in microjoules
 static long long idle_min; // in microjoules
 
-// 0->pkg, 1->cores, 2->uncore, 3->dram, 4->psys, seperate functions more energy efficient?
+// 0->pkg, 1->cores, 2->uncore, 3->dram, 4->psys, separate functions more energy efficient?
 long long read_energy(int domain) {
     FILE *fp;
     long long energy_microjoules;

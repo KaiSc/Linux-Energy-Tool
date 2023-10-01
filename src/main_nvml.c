@@ -300,7 +300,6 @@ int main(int argc, char *argv[]) {
                 cpu_cycles += readInterval(fds_cpu[i]);
             }
             system_stats.cycles = cpu_cycles;
-            // TODO estimate energy in update_docker_containers()
             // Estimate energy
             for (int i = 0; i < num_containers; i++)
             {
@@ -351,7 +350,6 @@ int main(int argc, char *argv[]) {
         }
 
         total_energy = total_energy / (measurements-1);
-        // TODO
         // - how much of idle power can be used on processes 
         // - coefficient to make up for measurements?
 

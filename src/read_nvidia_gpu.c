@@ -102,8 +102,13 @@ long long get_gpu_stats() {
             return -1; 
         }
 
-        // Estimate GPU energy in microjoules, TODO rough division into memory, computation and fan energy
-        estimated_energy += llround((double) GPU_stats[i].util * (double) GPU_stats[i].max_power * 10.0);
+        // Estimate GPU energy in microjoules (for 1/10th second), division into memory, computation and fan energy
+        estimated_energy += round(
+            (double) GPU_stats[i].util * (double) GPU_stats[i].max_power * 10.0 * 0.75 + // 75% computing
+            (double) GPU_stats[i].mem_util * (double) GPU_stats[i].max_power * 10.0 * 0.15 + // 15% memory
+            500000 + // 5 Watts idle
+            200000 * GPU_stats[i].fan_speed // 2 Watts fan
+            );
 
         // Print measurements
         //printf("GPU%d: util(%%):%u, mem_util(%%):%u, fan(%%):%u, temperature(°C):%u\n",
@@ -233,7 +238,7 @@ int read_gpu_energy() {
         return 1;
     }
 
-    // TODO multiple GPUs which handle to read
+    // TODO multiple GPUs 
     result = nvmlDeviceGetHandleByIndex(0, &device);
     if (result != NVML_SUCCESS) {
         printf("Failed to get device handle: %s\n", nvmlErrorString(result));
@@ -289,7 +294,6 @@ int gpu_processes() {
     }
 
     // Determine size of buffer required to hold samples
-    // TODO insufficient size error
     result = nvmlDeviceGetProcessUtilization(device, NULL, &processSamplesCount, lastSeenTimeStamp);
     if (result != NVML_SUCCESS) {
         printf("Failed to get process utilization1: %s\n", nvmlErrorString(result));

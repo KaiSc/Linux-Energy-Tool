@@ -153,87 +153,6 @@ int main(int argc, char *argv[]) {
             fclose(logfile);
         }
 
-        ///////////////////////////////////
-        /*
-        // Fork to start child process
-        argv[argc] = NULL; // Add NULL terminator to argument for execvp
-        struct timeval start, end;
-        double elapsedTime;
-        // Set up system-wide cycles
-        for (int i = 0; i < MAX_CPUS; i++) {
-            fds_cpu[i] = setUpProcCycles_cpu(i);
-        }
-        read_systemwide_stats(&system_stats);
-        gettimeofday(&start, NULL);
-        energy_before_pkg = read_energy(0);
-        energy_before_dram = read_energy(3);
-
-        pid = fork();
-        if (pid == 0) {
-            // Child process executes the command
-            execvp(argv[2], &argv[2]); // replaces the child process with this one
-        } else if (pid > 0) {
-            long long proc_cycles = 0;
-            int fd = setUpProcCycles(pid);
-
-            // parent process waits for child termination 
-            /*  // higher energy overhead but same statistics as running processes
-            struct proc_stats p;
-            p.pid = pid;
-            ret = 0;
-            while (ret == 0)
-            {
-                read_process_stats(&p); // need to read in loop else rss will be 0
-                usleep(10000); //sleep 10ms and check if terminated
-                ret = check_zombie_state(pid);
-            }
-            energy_after_pkg = read_energy(0);
-            energy_after_dram = read_energy(3);
-            total_energy_used = check_overflow(energy_before_pkg, energy_after_pkg)
-                                    + check_overflow(energy_before_dram, energy_after_dram);
-            print_pinfo(&p);
-            printf("Systemwide measured energy in microjoules: %lld" "\n", total_energy_used);
-            /* */
-
-            /* // more accurate energy but different statistics 
-            int ret = wait4(pid, &status, 0, &usage);
-            if (ret != -1) {
-                energy_after_pkg = read_energy(0);
-                energy_after_dram = read_energy(3);
-                total_energy_used = check_overflow(energy_before_pkg, energy_after_pkg)
-                                    + check_overflow(energy_before_dram, energy_after_dram);
-                proc_cycles += readInterval(fd);
-                gettimeofday(&end, NULL);
-                closeEvent(fd);
-                read_systemwide_stats(&system_stats);
-                for (int i = 0; i < MAX_CPUS; i++) {   
-                    cpu_cycles += readInterval(fds_cpu[i]);
-                    closeEvent(fds_cpu[i]);
-                }
-                system_stats.cycles = cpu_cycles;
-                elapsedTime = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) * 1e-6;
-                long long estimated_energy = estimate_energy_cycles(cpu_cycles, proc_cycles,
-                                                                    total_energy_used, elapsedTime);
-                double total_proc_cpu_time = usage.ru_utime.tv_sec + usage.ru_stime.tv_sec + 
-                        (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) * 1e-6;
-                long total_io = usage.ru_inblock + usage.ru_oublock;
-                printf("Elapsed time: %.6f\n", elapsedTime);
-                printf("Process CPU Time: %.6f\n", total_proc_cpu_time);
-                printf("Maximum used rss: %ld \n", usage.ru_maxrss);
-                printf("Input/Output operations: %ld \n", total_io);
-                printf("Process CPU cycles: %lld \n", proc_cycles);
-                printf("System-wide CPU cycles: %lld \n", cpu_cycles);
-                printf("Estimated energy: %lld \n", estimated_energy);
-                printf("System-wide measured energy in microjoules: %lld\n", total_energy_used);
-                if (logging_enabled == 1) {
-                    system_stats_to_buffer(&system_stats, total_energy_used, logging_buffer);
-                    e_stats_to_buffer(total_proc_cpu_time, usage.ru_maxrss, total_io,
-                                proc_cycles, estimated_energy, logging_buffer);
-                    writeToFile(logfile, logging_buffer);
-                }
-            }
-        }
-        */
         close_cgroup();
         return 0;
     }
@@ -343,7 +262,6 @@ int main(int argc, char *argv[]) {
             total_energy_used = check_overflow(energy_before_dram, energy_after_dram) 
                                 + check_overflow(energy_before_pkg, energy_after_pkg);
             // Update containers
-            // TODO estimate energy in updating
             update_docker_containers();
             for (int i = 0; i < MAX_CPUS; i++) {   
                 cpu_cycles += readInterval(fds_cpu[i]);
@@ -396,7 +314,6 @@ int main(int argc, char *argv[]) {
         }
 
         total_energy = total_energy / (measurements-1);
-        // TODO
         // - how much of idle power can be used on processes?
         // - coefficient to make up for measurements?
 

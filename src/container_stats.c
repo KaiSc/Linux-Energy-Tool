@@ -17,9 +17,7 @@
    /cgroup.procs + /cgroup.threads lists pids of the processes
 */ ///////////////////////////////////////////
 
-// TODO
-// - use hashmap to store containers for efficiency?
-// - open perf event as group event?
+// - use hashmap to store containers for efficiency
 
 #define MAX_CONTAINERS 25
 
@@ -272,8 +270,8 @@ static int add_docker_container(char *id_str) {
         perror("Couldn't open /memory.current file");
         return 1;
     }
-    // TODO read memory.stats file? anon + file + kernel = mem.current
-    // has additional stats
+    // possibly read memory.stats file? anon + file + kernel = mem.current
+
     fclose(fp);
     */
 

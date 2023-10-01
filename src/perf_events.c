@@ -67,7 +67,7 @@ int setUpProcCycles_cpu(int cpu) {
     return fd;
 }
 
-// TODO can multiple cpus be opened as group event?
+// todo possibly open all cpus as group event
 int setUpProcCycles_cgroup(int cgroup_fd, int cpu) {
     struct perf_event_attr pe;
     int fd;

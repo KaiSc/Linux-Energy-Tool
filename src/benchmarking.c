@@ -32,7 +32,7 @@ pid_t cgroup_id;
 int init_benchmarking() {
     max_cpus = sysconf(_SC_NPROCESSORS_CONF);
     cgroup_perf_fds = malloc(sizeof(int) * max_cpus);
-    // Add pid to cgroup path in case multiple instances running at same time
+    // Add pid to cgroup path in case multiple instances are running at same time
     cgroup_id = getpid();
     // Create the cgroup_path_id strings
     snprintf(cgroup_path_id, 220, "%s_%d", cgroup_path, cgroup_id);
